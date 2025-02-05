@@ -98,7 +98,7 @@ pub fn build(b: *std.Build) !void {
 
     // compile
     const tests = b.addTest(.{
-        .root_source_file = b.path("src/run_tests.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .test_runner = b.path("src/test_runner.zig"),
         .target = target,
         .optimize = mode,

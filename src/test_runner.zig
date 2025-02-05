@@ -17,13 +17,20 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
-const tests = @import("run_tests.zig");
-
-pub const Types = tests.Types;
-pub const UserContext = tests.UserContext;
-pub const IO = tests.IO;
+pub const Types = @import("main.zig").Types;
+pub const UserContext = @import("main.zig").UserContext;
+pub const IO = @import("main.zig").IO;
 
 pub fn main() !void {
-    try tests.main();
+    const out = std.io.getStdOut().writer();
+
+    for (builtin.test_functions) |t| {
+        t.func() catch |err| {
+            try std.fmt.format(out, "{s} fail: {}\n", .{t.name, err});
+            continue;
+        };
+        try std.fmt.format(out, "{s} passed\n", .{t.name});
+    }
 }

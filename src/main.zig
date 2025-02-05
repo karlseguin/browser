@@ -364,3 +364,7 @@ fn logFn(
     // default std log function.
     std.log.defaultLog(level, scope, format, args);
 }
+
+test {
+    std.testing.refAllDecls(@This());
+}
