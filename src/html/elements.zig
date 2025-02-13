@@ -244,7 +244,7 @@ pub const HTMLAnchorElement = struct {
         defer u.deinit(alloc);
 
         u.uri.scheme = v;
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -281,7 +281,7 @@ pub const HTMLAnchorElement = struct {
             u.uri.port = null;
         }
 
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -300,7 +300,7 @@ pub const HTMLAnchorElement = struct {
         defer u.deinit(alloc);
 
         u.uri.host = .{ .raw = v };
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         try parser.anchorSetHref(self, href);
     }
 
@@ -322,7 +322,7 @@ pub const HTMLAnchorElement = struct {
             u.uri.port = null;
         }
 
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -345,7 +345,7 @@ pub const HTMLAnchorElement = struct {
         } else {
             u.uri.user = null;
         }
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -368,7 +368,7 @@ pub const HTMLAnchorElement = struct {
         } else {
             u.uri.password = null;
         }
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -387,7 +387,7 @@ pub const HTMLAnchorElement = struct {
         defer u.deinit(alloc);
 
         u.uri.path = .{ .raw = v };
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -410,7 +410,7 @@ pub const HTMLAnchorElement = struct {
         } else {
             u.uri.query = null;
         }
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);
@@ -433,7 +433,7 @@ pub const HTMLAnchorElement = struct {
         } else {
             u.uri.fragment = null;
         }
-        const href = try u.format(alloc);
+        const href = try u._toString(alloc);
         defer alloc.free(href);
 
         try parser.anchorSetHref(self, href);

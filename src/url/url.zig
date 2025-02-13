@@ -51,7 +51,8 @@ pub const URL = struct {
     pub const mem_guarantied = true;
 
     pub fn constructor(alloc: std.mem.Allocator, url: []const u8, base: ?[]const u8) !URL {
-        const raw = try std.mem.concat(alloc, u8, &[_][]const u8{ url, base orelse "" });
+        const normalized = std.mem.trim(u8, url, &std.ascii.whitespace);
+        const raw = try std.mem.concat(alloc, u8, &[_][]const u8{ normalized, base orelse "" });
         errdefer alloc.free(raw);
 
         const uri = std.Uri.parse(raw) catch {
@@ -106,23 +107,7 @@ pub const URL = struct {
         try self.search_params.values.encode(q.writer());
         self.uri.query = .{ .percent_encoded = q.items };
 
-        return try self.format(alloc);
-    }
-
-    // format the url with all its components.
-    pub fn format(self: *URL, alloc: std.mem.Allocator) ![]const u8 {
-        var buf = std.ArrayList(u8).init(alloc);
-        defer buf.deinit();
-
-        try self.uri.writeToStream(.{
-            .scheme = true,
-            .authentication = true,
-            .authority = true,
-            .path = uriComponentNullStr(self.uri.path).len > 0,
-            .query = uriComponentNullStr(self.uri.query).len > 0,
-            .fragment = uriComponentNullStr(self.uri.fragment).len > 0,
-        }, buf.writer());
-        return try buf.toOwnedSlice();
+        return try self._toString(alloc);
     }
 
     // the caller must free the returned string.
@@ -208,7 +193,22 @@ pub const URL = struct {
     }
 
     pub fn _toJSON(self: *URL, alloc: std.mem.Allocator) ![]const u8 {
-        return try self.get_href(alloc);
+        return try self._toString(alloc);
+    }
+
+    pub fn _toString(self: *URL, alloc: std.mem.Allocator) ![]const u8 {
+        var buf = std.ArrayList(u8).init(alloc);
+        defer buf.deinit();
+
+        try self.uri.writeToStream(.{
+            .scheme = true,
+            .authentication = true,
+            .authority = true,
+            .path = uriComponentNullStr(self.uri.path).len > 0,
+            .query = uriComponentNullStr(self.uri.query).len > 0,
+            .fragment = uriComponentNullStr(self.uri.fragment).len > 0,
+        }, buf.writer());
+        return try buf.toOwnedSlice();
     }
 };
 
@@ -314,4 +314,177 @@ pub fn testExecFn(
         .{ .src = "url.searchParams.get('a')", .ex = "" },
     };
     try checkCases(js_env, &qs);
+}
+
+const testing = std.testing;
+test "URL: constructor invalid" {
+    const expectError = struct {
+        fn expect(url: []const u8, base: ?[]const u8) !void {
+            const actual = URL.constructor(testing.allocator, url, base);
+            try testing.expectError(error.TypeError, actual);
+        }
+    }.expect;
+
+    try expectError("", null);
+    try expectError("http", null);
+    try expectError("ht|tp://l", null);
+    try expectError("ht%tp://l", null);
+    try expectError("ht^tp://l", null);
+    try expectError("ht tp://l", null);
+
+    // TODO: compat, these should not be valid
+    // try expectError("http:", null);
+    // try expectError("http://local>host/", null);
+    // try expectError("http://local%host/", null);
+
+    // TODO: compat, base URL must be a full URL
+    // try expectError("http://l", "");
+    // try expectError("http://l", "/");
+}
+
+test "URL: constructor protocol and host" {
+    const expectURL = struct {
+        const Expected = struct {
+            protocol: []const u8,
+            host: []const u8,
+            port: []const u8,
+            path: []const u8,
+        };
+
+        fn expect(expected: Expected, url: []const u8) !void {
+            const allocator = testing.allocator;
+            var u = try URL.constructor(allocator, url, null);
+            defer u.deinit(allocator);
+
+            const protocol = try u.get_protocol(allocator);
+            defer allocator.free(protocol);
+            try testing.expectEqualStrings(expected.protocol, protocol);
+
+            const host = try u.get_host(allocator);
+            defer allocator.free(host);
+            try testing.expectEqualStrings(expected.host, host);
+
+            const port = try u.get_port(allocator);
+            defer allocator.free(port);
+            try testing.expectEqualStrings(expected.port, port);
+
+            const path = u.get_pathname();
+            try testing.expectEqualStrings(expected.path, path);
+        }
+    }.expect;
+
+    // all these should result in the same protocol/host/port/pathname
+    for ([_][]const u8{
+        "http://localhost", "http://localhost/", "  http://localhost\t",
+        "http://@localhost",
+        // TODO: compat
+        // these don't pass because of Zig's std.URI
+        // "http://localhost:", "http://localhost:/", //"http://@localhost:",
+        // "http:///localhost", "  http:///localhost:/\t",
+    }) |url| {
+        try expectURL(.{ .protocol = "http:", .host = "localhost", .port = "", .path = "/" }, url);
+    }
+
+    // TODO: compat
+    // try expectURL(.{
+    //     .protocol = "http:",
+    //     .host = "%20",
+    //     .port = "",
+    //     .path = "//hello"
+    // }, "http: //hello");
+
+    // TODO: compat
+    // try expectURL(.{
+    //     .protocol = "http:",
+    //     .host = "over%209000!",
+    //     .port = "",
+    //     .path = "/what"
+    // }, "http://over 9000!/what");
+
+    // TODO : compat
+    // try expectURL(.{
+    //     .protocol = "http:",
+    //     .host = "over9000",
+    //     .port = "",
+    //     .path = "/what"
+    // }, "http://over\t9000/wh\nat");
+
+    // TODO: compat
+    // these don't pass because of Zig's std.URI
+    // "http://localhost:", "http://localhost:/", //"http://@localhost:",
+    // "http:///localhost", "  http:///localhost:/\t",
+    // These "special" schemes should should not support empty hosts, but FF
+    // and Chrome are both flexible and not only allow empty hosts, they also
+    // allow other variants.
+    // inline for ([_][]const u8{"ftp", "http", "https", "ws", "wss"}) |scheme| {
+    //     // http:/127.0.0.1 (single slash)
+    //     try expectURL(.{
+    //         .protocol = scheme ++ ":",
+    //         .host = "127.0.01",
+    //         .port = "",
+    //         .path = "/"
+    //     }, scheme ++ ":/127.0.0.1");
+
+    //     // http:///127.0.0.1 (empty hosts, but treated as normal URL)
+    //     try expectURL(.{
+    //         .protocol = scheme ++ ":",
+    //         .host = "127.0.01",
+    //         .port = "",
+    //         .path = "/"
+    //     }, scheme ++ ":///127.0.0.1");
+
+    //     // http:////127.0.0.1 (more slashes, but treated as normal URL)
+    //     try expectURL(.{
+    //         .protocol = scheme ++ ":",
+    //         .host = "127.0.01",
+    //         .port = "",
+    //         .path = "/"
+    //     }, scheme ++ ":////127.0.0.1");
+    // }
+
+    try expectURL(.{ .protocol = "file:", .host = "", .port = "", .path = "/tmp/a" }, "file:///tmp/a");
+
+    try expectURL(.{ .protocol = "file:", .host = "over", .port = "", .path = "/9000" }, "file://over/9000");
+
+    try expectURL(.{ .protocol = "ht.tp:", .host = "a.a", .port = "", .path = "/b.b" }, "ht.tp://a.a/b.b");
+
+    // TODO: compat
+    // try expectURL(.{
+    //     .protocol = "other:",
+    //     .host = "",
+    //     .port = "",
+    //     .path = ""
+    // }, "other://");
+
+    // TODO: compat
+    // only a "special" prtocol has a default path of "/"
+    // try expectURL(.{
+    //     .protocol = "other:",
+    //     .host = "a",
+    //     .port = "",
+    //     .path = ""
+    // }, "other://a");
+}
+
+test "URL: constructor base" {
+    const expect = struct {
+        const Expected = struct {
+            host: []const u8,
+            path: []const u8,
+        };
+
+        fn expectURL(expected: Expected, url: []const u8, base: ?[]const u8) !void {
+            const allocator = testing.allocator;
+            var u = try URL.constructor(allocator, url, base);
+            defer u.deinit(allocator);
+
+            const host = try u.get_host(allocator);
+            defer allocator.free(host);
+            try testing.expectEqualStrings(expected.host, host);
+
+            const path = u.get_pathname();
+            try testing.expectEqualStrings(expected.path, path);
+        }
+    }.expectURL;
+    _ = expect;
 }
