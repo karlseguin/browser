@@ -20,6 +20,7 @@ const std = @import("std");
 
 const parser = @import("netsurf");
 const jsruntime = @import("jsruntime");
+
 const Callback = jsruntime.Callback;
 const CallbackArg = jsruntime.CallbackArg;
 const Loop = jsruntime.Loop;
@@ -30,6 +31,7 @@ const History = @import("history.zig").History;
 const Location = @import("location.zig").Location;
 
 const storage = @import("../storage/storage.zig");
+const js_config = @import("../apiweb.zig").js_config;
 
 var emptyLocation = Location{};
 
@@ -128,7 +130,7 @@ pub const Window = struct {
         if (self.timeoutid >= self.timeoutids.len) return error.TooMuchTimeout;
 
         const ddelay: u63 = delay orelse 0;
-        const id = loop.timeout(ddelay * std.time.ns_per_ms, cbk);
+        const id = loop.timeout(js_config, ddelay * std.time.ns_per_ms, cbk);
 
         self.timeoutids[self.timeoutid] = id;
         defer self.timeoutid += 1;
@@ -142,6 +144,6 @@ pub const Window = struct {
         // So we silently ignore invalid id for now.
         if (id >= self.timeoutid) return;
 
-        loop.cancel(self.timeoutids[id], null);
+        loop.cancel(js_config, self.timeoutids[id], null);
     }
 };

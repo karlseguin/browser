@@ -21,19 +21,17 @@ const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
 
-const Types = @import("root").Types;
-
 const parser = @import("netsurf");
 const Loader = @import("loader.zig").Loader;
 const Dump = @import("dump.zig");
 const Mime = @import("mime.zig").Mime;
 
+const js_config = @import("../apiweb.zig").js_config;
+
 const jsruntime = @import("jsruntime");
 const Loop = jsruntime.Loop;
-const Env = jsruntime.Env;
+const Env = jsruntime.Env(js_config);
 const Module = jsruntime.Module;
-
-const apiweb = @import("../apiweb.zig");
 
 const Window = @import("../html/window.zig").Window;
 const Walker = @import("../dom/walker.zig").WalkerDepthFirst;
@@ -45,7 +43,6 @@ const storage = @import("../storage/storage.zig");
 
 const FetchResult = @import("../http/Client.zig").Client.FetchResult;
 
-const UserContext = @import("../user_context.zig").UserContext;
 const HttpClient = @import("asyncio").Client;
 
 const polyfill = @import("../polyfill/polyfill.zig");
@@ -60,11 +57,8 @@ pub const user_agent = "Lightpanda/1.0";
 // TODO allow multiple sessions per browser.
 pub const Browser = struct {
     loop: *Loop,
-    session: ?*Session,
+    session: ?Session,
     allocator: Allocator,
-    session_pool: SessionPool,
-
-    const SessionPool = std.heap.MemoryPool(Session);
 
     const uri = "about:blank";
 
@@ -73,36 +67,30 @@ pub const Browser = struct {
             .loop = loop,
             .session = null,
             .allocator = allocator,
-            .session_pool = SessionPool.init(allocator),
         };
     }
 
     pub fn deinit(self: *Browser) void {
         self.closeSession();
-        self.session_pool.deinit();
     }
 
     pub fn newSession(self: *Browser, ctx: anytype) !*Session {
         self.closeSession();
-
-        const session = try self.session_pool.create();
-        try Session.init(session, self.allocator, ctx, self.loop, uri);
-        self.session = session;
+        self.session = try Session.init(self.allocator, self.loop, uri);
+        const session = &self.session.?;
+        try session.setInspector(ctx);
         return session;
     }
 
     fn closeSession(self: *Browser) void {
-        if (self.session) |session| {
+        if (self.session) |*session| {
             session.deinit();
-            self.session_pool.destroy(session);
-            self.session = null;
         }
     }
 
     pub fn currentPage(self: *Browser) ?*Page {
-        if (self.session.page == null) return null;
-
-        return &self.session.page.?;
+        const session = &(self.session orelse return null);
+        return &(session.page orelse return null);
     }
 };
 
@@ -126,7 +114,7 @@ pub const Session = struct {
     // TODO handle proxy
     loader: Loader,
 
-    env: Env,
+    env: *Env,
     inspector: jsruntime.Inspector,
 
     window: Window,
@@ -136,12 +124,16 @@ pub const Session = struct {
     page: ?Page = null,
     httpClient: HttpClient,
 
-    jstypes: [Types.len]usize = undefined,
+    fn init(allocator: Allocator, loop: *Loop, uri: []const u8) !Session {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
 
-    fn init(self: *Session, allocator: Allocator, ctx: anytype, loop: *Loop, uri: []const u8) !void {
-        self.* = .{
+        const env = try js_config.createEnv(arena.allocator(), loop, null);
+        errdefer env.deinit();
+
+        return .{
             .uri = uri,
-            .env = undefined,
+            .env = env,
             .inspector = undefined,
             .allocator = allocator,
             .loader = Loader.init(allocator),
@@ -150,13 +142,9 @@ pub const Session = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .window = Window.create(null, .{ .agent = user_agent }),
         };
+    }
 
-        const arena = self.arena.allocator();
-
-        Env.init(&self.env, arena, loop, null);
-        errdefer self.env.deinit();
-        try self.env.load(&self.jstypes);
-
+    fn setInspector(self: *Session, ctx: anytype) !void {
         const ContextT = @TypeOf(ctx);
         const InspectorContainer = switch (@typeInfo(ContextT)) {
             .Struct => ContextT,
@@ -167,7 +155,7 @@ pub const Session = struct {
 
         // const ctx_opaque = @as(*anyopaque, @ptrCast(ctx));
         self.inspector = try jsruntime.Inspector.init(
-            arena,
+            self.arena.allocator(),
             self.env,
             if (@TypeOf(ctx) == void) @constCast(@ptrCast(&{})) else ctx,
             InspectorContainer.onInspectorResponse,
@@ -443,7 +431,7 @@ pub const Page = struct {
         self.session.inspector.contextCreated(self.session.env, "", self.origin.?, auxData);
 
         // replace the user context document with the new one.
-        try self.session.env.setUserContext(.{
+        self.session.env.setAppContext(.{
             .document = html_doc,
             .httpClient = &self.session.httpClient,
         });
@@ -674,7 +662,7 @@ pub const Page = struct {
             return .unknown;
         }
 
-        fn eval(self: Script, alloc: Allocator, env: Env, body: []const u8) !void {
+        fn eval(self: Script, alloc: Allocator, env: *Env, body: []const u8) !void {
             var try_catch: jsruntime.TryCatch = undefined;
             try_catch.init(env);
             defer try_catch.deinit();

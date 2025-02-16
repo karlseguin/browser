@@ -25,7 +25,7 @@ const checkCases = jsruntime.test_utils.checkCases;
 
 const CharacterData = @import("character_data.zig").CharacterData;
 
-const UserContext = @import("../user_context.zig").UserContext;
+const UserContext = @import("../apiweb.zig").UserContext;
 
 // https://dom.spec.whatwg.org/#interface-comment
 pub const Comment = struct {
@@ -33,9 +33,9 @@ pub const Comment = struct {
     pub const prototype = *CharacterData;
     pub const mem_guarantied = true;
 
-    pub fn constructor(userctx: UserContext, data: ?[]const u8) !*parser.Comment {
+    pub fn constructor(userctx: ?UserContext, data: ?[]const u8) !*parser.Comment {
         return parser.documentCreateComment(
-            parser.documentHTMLToDocument(userctx.document),
+            parser.documentHTMLToDocument(userctx.?.document),
             data orelse "",
         );
     }

@@ -24,11 +24,6 @@ const jsruntime = @import("jsruntime");
 const Browser = @import("browser/browser.zig").Browser;
 const server = @import("server.zig");
 
-const parser = @import("netsurf");
-const apiweb = @import("apiweb.zig");
-
-pub const Types = jsruntime.reflect(apiweb.Interfaces);
-pub const UserContext = apiweb.UserContext;
 pub const IO = @import("asyncio").Wrapper(jsruntime.Loop);
 
 // Simple blocking websocket connection model
@@ -253,8 +248,8 @@ pub fn main() !void {
             log.debug("Fetch mode: url {s}, dump {any}", .{ opts.url, opts.dump });
 
             // vm
-            const vm = jsruntime.VM.init();
-            defer vm.deinit();
+            jsruntime.init();
+            defer jsruntime.deinit();
 
             // loop
             var loop = try jsruntime.Loop.init(alloc);
@@ -305,4 +300,8 @@ fn logFn(
     }
     // default std log function.
     std.log.defaultLog(level, scope, format, args);
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

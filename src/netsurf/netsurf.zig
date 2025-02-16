@@ -707,6 +707,7 @@ const EventHandlerDataInternal = struct {
 };
 
 pub fn eventTargetAddEventListener(
+    comptime config: anytype,
     et: *EventTarget,
     alloc: std.mem.Allocator,
     typ: []const u8,
@@ -722,7 +723,7 @@ pub fn eventTargetAddEventListener(
     // When a function is used as an event handler, its this parameter is bound
     // to the DOM element on which the listener is placed.
     // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/this#this_in_dom_event_handlers
-    try ehd.data.cbk.setThisArg(et);
+    try ehd.data.cbk.setThisArg(config, et);
 
     const ctx = @as(*anyopaque, @ptrCast(ehd));
     var listener: ?*EventListener = undefined;

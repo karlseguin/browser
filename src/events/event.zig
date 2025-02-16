@@ -33,6 +33,7 @@ const EventTarget = @import("../dom/event_target.zig").EventTarget;
 const EventTargetUnion = @import("../dom/event_target.zig").Union;
 
 const ProgressEvent = @import("../xhr/progress_event.zig").ProgressEvent;
+const js_config = @import("../apiweb.zig").js_config;
 
 const log = std.log.scoped(.events);
 
@@ -243,15 +244,16 @@ pub fn testExecFn(
 pub const EventHandler = struct {
     fn handle(event: ?*parser.Event, data: parser.EventHandlerData) void {
         // TODO get the allocator by another way?
-        var res = CallbackResult.init(data.cbk.nat_ctx.alloc);
+        const native_context: *jsruntime.NativeContext(js_config) = @alignCast(@ptrCast(data.cbk.native_context));
+        var res = CallbackResult.init(native_context.allocator);
         defer res.deinit();
 
         if (event) |evt| {
-            data.cbk.trycall(.{
+            data.cbk.trycall(js_config, .{
                 Event.toInterface(evt) catch unreachable,
             }, &res) catch |e| log.err("event handler error: {any}", .{e});
         } else {
-            data.cbk.trycall(.{event}, &res) catch |e| log.err("event handler error (null event): {any}", .{e});
+            data.cbk.trycall(js_config, .{event}, &res) catch |e| log.err("event handler error (null event): {any}", .{e});
         }
 
         // in case of function error, we log the result and the trace.

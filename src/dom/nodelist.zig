@@ -30,6 +30,7 @@ const NodeUnion = @import("node.zig").Union;
 const Node = @import("node.zig").Node;
 
 const U32Iterator = @import("../iterator/iterator.zig").U32Iterator;
+const js_config = @import("../apiweb.zig").js_config;
 
 const log = std.log.scoped(.nodelist);
 
@@ -145,7 +146,7 @@ pub const NodeList = struct {
 
         for (self.nodes.items, 0..) |n, i| {
             const ii: u32 = @intCast(i);
-            cbk.trycall(.{ n, ii, self }, &res) catch |e| {
+            cbk.trycall(js_config, .{ n, ii, self }, &res) catch |e| {
                 log.err("callback error: {s}", .{res.result orelse "unknown"});
                 log.debug("{s}", .{res.stack orelse "no stack trace"});
 

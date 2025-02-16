@@ -19,6 +19,7 @@
 const std = @import("std");
 
 const parser = @import("netsurf");
+const js_config = @import("../apiweb.zig").js_config;
 
 const jsruntime = @import("jsruntime");
 const Callback = jsruntime.Callback;
@@ -104,6 +105,7 @@ pub const MutationObserver = struct {
         // register node's events.
         if (o.options.childList or o.options.subtree) {
             try parser.eventTargetAddEventListener(
+                js_config,
                 parser.toEventTarget(parser.Node, node),
                 alloc,
                 "DOMNodeInserted",
@@ -112,6 +114,7 @@ pub const MutationObserver = struct {
                 false,
             );
             try parser.eventTargetAddEventListener(
+                js_config,
                 parser.toEventTarget(parser.Node, node),
                 alloc,
                 "DOMNodeRemoved",
@@ -122,6 +125,7 @@ pub const MutationObserver = struct {
         }
         if (o.options.attr()) {
             try parser.eventTargetAddEventListener(
+                js_config,
                 parser.toEventTarget(parser.Node, node),
                 alloc,
                 "DOMAttrModified",
@@ -132,6 +136,7 @@ pub const MutationObserver = struct {
         }
         if (o.options.cdata()) {
             try parser.eventTargetAddEventListener(
+                js_config,
                 parser.toEventTarget(parser.Node, node),
                 alloc,
                 "DOMCharacterDataModified",
@@ -142,6 +147,7 @@ pub const MutationObserver = struct {
         }
         if (o.options.subtree) {
             try parser.eventTargetAddEventListener(
+                js_config,
                 parser.toEventTarget(parser.Node, node),
                 alloc,
                 "DOMSubtreeModified",
@@ -183,7 +189,7 @@ pub const MutationRecords = struct {
 
     pub fn postAttach(self: *MutationRecords, js_obj: jsruntime.JSObject) !void {
         if (self.first) |mr| {
-            try js_obj.set("0", mr);
+            try js_obj.set(js_config, "0", mr);
         }
     }
 };
@@ -283,7 +289,8 @@ const EventHandler = struct {
         const muevt = parser.eventToMutationEvent(evt.?);
 
         // TODO get the allocator by another way?
-        const alloc = data.cbk.nat_ctx.alloc;
+        const native_context: *jsruntime.NativeContext(js_config) = @alignCast(@ptrCast(data.cbk.native_context));
+        const alloc = native_context.allocator;
 
         if (std.mem.eql(u8, t, "DOMAttrModified")) {
             mrs.first = .{
@@ -344,7 +351,7 @@ const EventHandler = struct {
         defer res.deinit();
 
         // TODO pass MutationRecords and MutationObserver
-        data.cbk.trycall(.{mrs}, &res) catch |e| log.err("mutation event handler error: {any}", .{e});
+        data.cbk.trycall(js_config, .{mrs}, &res) catch |e| log.err("mutation event handler error: {any}", .{e});
 
         // in case of function error, we log the result and the trace.
         if (!res.success) {

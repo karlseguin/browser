@@ -26,6 +26,7 @@ const checkCases = jsruntime.test_utils.checkCases;
 
 const parser = @import("netsurf");
 const EventHandler = @import("../events/event.zig").EventHandler;
+const js_config = @import("../apiweb.zig").js_config;
 
 const DOMException = @import("exceptions.zig").DOMException;
 const Nod = @import("node.zig");
@@ -70,6 +71,7 @@ pub const EventTarget = struct {
         }
 
         try parser.eventTargetAddEventListener(
+            js_config,
             self,
             alloc,
             eventType,

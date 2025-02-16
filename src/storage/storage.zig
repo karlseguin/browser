@@ -18,9 +18,6 @@
 
 const std = @import("std");
 
-const jsruntime = @import("jsruntime");
-const Case = jsruntime.test_utils.Case;
-const checkCases = jsruntime.test_utils.checkCases;
 const DOMError = @import("netsurf").DOMError;
 
 const log = std.log.scoped(.storage);
@@ -86,8 +83,8 @@ pub const Bucket = struct {
 
     pub fn init(alloc: std.mem.Allocator) Bucket {
         return .{
-            .local = Bottle.init(alloc),
-            .session = Bottle.init(alloc),
+            .local = Bottle.constructor(alloc),
+            .session = Bottle.constructor(alloc),
         };
     }
 
@@ -107,7 +104,7 @@ pub const Bottle = struct {
     alloc: std.mem.Allocator,
     map: Map,
 
-    pub fn init(alloc: std.mem.Allocator) Bottle {
+    pub fn constructor(alloc: std.mem.Allocator) Bottle {
         return .{
             .alloc = alloc,
             .map = .{},
@@ -212,31 +209,36 @@ pub const Bottle = struct {
 // Tests
 // -----
 
-pub fn testExecFn(
-    _: std.mem.Allocator,
-    js_env: *jsruntime.Env,
-) anyerror!void {
-    var storage = [_]Case{
-        .{ .src = "localStorage.length", .ex = "0" },
+test "storage: integration" {
+    const jsruntime = @import("jsruntime");
+    const js_config = jsruntime.Config(.{Bottle}, void);
 
-        .{ .src = "localStorage.setItem('foo', 'bar')", .ex = "undefined" },
-        .{ .src = "localStorage.length", .ex = "1" },
-        .{ .src = "localStorage.getItem('foo')", .ex = "bar" },
-        .{ .src = "localStorage.removeItem('foo')", .ex = "undefined" },
-        .{ .src = "localStorage.length", .ex = "0" },
+    var buf: [1024 * 4]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var runner = try jsruntime.test_utils.CaseRunner(js_config).init(fba.allocator(), {});
+    defer runner.deinit();
 
-        // .{ .src = "localStorage['foo'] = 'bar'", .ex = "undefined" },
-        // .{ .src = "localStorage['foo']", .ex = "bar" },
-        // .{ .src = "localStorage.length", .ex = "1" },
+    try runner.run(&.{
+        .{ .src = "let bottle = new Bottle();", .ex = "undefined" },
+        .{ .src = "bottle.length", .ex = "0" },
 
-        .{ .src = "localStorage.clear()", .ex = "undefined" },
-        .{ .src = "localStorage.length", .ex = "0" },
-    };
-    try checkCases(js_env, &storage);
+        .{ .src = "bottle.setItem('foo', 'bar')", .ex = "undefined" },
+        .{ .src = "bottle.length", .ex = "1" },
+        .{ .src = "bottle.getItem('foo')", .ex = "bar" },
+        .{ .src = "bottle.removeItem('foo')", .ex = "undefined" },
+        .{ .src = "bottle.length", .ex = "0" },
+
+        // .{ .src = "bottle['foo'] = 'bar'", .ex = "undefined" },
+        // .{ .src = "bottle['foo']", .ex = "bar" },
+        // .{ .src = "bottle.length", .ex = "1" },
+
+        .{ .src = "bottle.clear()", .ex = "undefined" },
+        .{ .src = "bottle.length", .ex = "0" },
+    });
 }
 
-test "storage bottle" {
-    var bottle = Bottle.init(std.testing.allocator);
+test "storage: bottle" {
+    var bottle = Bottle.constructor(std.testing.allocator);
     defer bottle.deinit();
 
     try std.testing.expectEqual(0, bottle.get_length());

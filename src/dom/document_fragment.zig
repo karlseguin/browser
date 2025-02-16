@@ -26,7 +26,7 @@ const checkCases = jsruntime.test_utils.checkCases;
 
 const Node = @import("node.zig").Node;
 
-const UserContext = @import("../user_context.zig").UserContext;
+const UserContext = @import("../apiweb.zig").UserContext;
 
 // WEB IDL https://dom.spec.whatwg.org/#documentfragment
 pub const DocumentFragment = struct {
@@ -34,9 +34,9 @@ pub const DocumentFragment = struct {
     pub const prototype = *Node;
     pub const mem_guarantied = true;
 
-    pub fn constructor(userctx: UserContext) !*parser.DocumentFragment {
+    pub fn constructor(userctx: ?UserContext) !*parser.DocumentFragment {
         return parser.documentCreateDocumentFragment(
-            parser.documentHTMLToDocument(userctx.document),
+            parser.documentHTMLToDocument(userctx.?.document),
         );
     }
 };

@@ -35,7 +35,7 @@ const Client = @import("asyncio").Client;
 
 const parser = @import("netsurf");
 
-const UserContext = @import("../user_context.zig").UserContext;
+const UserContext = @import("../apiweb.zig").UserContext;
 
 const log = std.log.scoped(.xhr);
 
@@ -288,7 +288,7 @@ pub const XMLHttpRequest = struct {
 
     const min_delay: u64 = 50000000; // 50ms
 
-    pub fn constructor(alloc: std.mem.Allocator, loop: *Loop, userctx: UserContext) !XMLHttpRequest {
+    pub fn constructor(alloc: std.mem.Allocator, loop: *Loop, userctx: ?UserContext) !XMLHttpRequest {
         return .{
             .alloc = alloc,
             .headers = Headers.init(alloc),
@@ -298,7 +298,7 @@ pub const XMLHttpRequest = struct {
             .url = null,
             .uri = undefined,
             .state = UNSENT,
-            .cli = userctx.httpClient,
+            .cli = userctx.?.httpClient,
         };
     }
 

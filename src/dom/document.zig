@@ -39,7 +39,7 @@ const DocumentType = @import("document_type.zig").DocumentType;
 const DocumentFragment = @import("document_fragment.zig").DocumentFragment;
 const DOMImplementation = @import("implementation.zig").DOMImplementation;
 
-const UserContext = @import("../user_context.zig").UserContext;
+const UserContext = @import("../apiweb.zig").UserContext;
 
 // WEB IDL https://dom.spec.whatwg.org/#document
 pub const Document = struct {
@@ -47,14 +47,14 @@ pub const Document = struct {
     pub const prototype = *Node;
     pub const mem_guarantied = true;
 
-    pub fn constructor(userctx: UserContext) !*parser.DocumentHTML {
+    pub fn constructor(userctx: ?UserContext) !*parser.DocumentHTML {
         const doc = try parser.documentCreateDocument(
-            try parser.documentHTMLGetTitle(userctx.document),
+            try parser.documentHTMLGetTitle(userctx.?.document),
         );
 
         // we have to work w/ document instead of html document.
         const ddoc = parser.documentHTMLToDocument(doc);
-        const ccur = parser.documentHTMLToDocument(userctx.document);
+        const ccur = parser.documentHTMLToDocument(userctx.?.document);
         try parser.documentSetDocumentURI(ddoc, try parser.documentGetDocumentURI(ccur));
         try parser.documentSetInputEncoding(ddoc, try parser.documentGetInputEncoding(ccur));
 

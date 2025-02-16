@@ -25,6 +25,7 @@ const EventTarget = @import("../dom/event_target.zig").EventTarget;
 const EventHandler = @import("../events/event.zig").EventHandler;
 
 const parser = @import("netsurf");
+const js_config = @import("../apiweb.zig").js_config;
 
 const log = std.log.scoped(.xhr);
 
@@ -49,6 +50,7 @@ pub const XMLHttpRequestEventTarget = struct {
         cbk: Callback,
     ) !void {
         try parser.eventTargetAddEventListener(
+            js_config,
             @as(*parser.EventTarget, @ptrCast(self)),
             alloc,
             typ,

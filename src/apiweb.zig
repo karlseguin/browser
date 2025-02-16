@@ -16,9 +16,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-const generate = @import("generate.zig");
 
-const Console = @import("jsruntime").Console;
+const jsruntime = @import("jsruntime");
+const Console = jsruntime.Console;
 
 const DOM = @import("dom/dom.zig");
 const HTML = @import("html/html.zig");
@@ -28,11 +28,17 @@ const Storage = @import("storage/storage.zig");
 const URL = @import("url/url.zig");
 const Iterators = @import("iterator/iterator.zig");
 const XMLSerializer = @import("xmlserializer/xmlserializer.zig");
-
 pub const HTMLDocument = @import("html/document.zig").HTMLDocument;
 
-// Interfaces
-pub const Interfaces = generate.Tuple(.{
+pub const UserContext = struct {
+    const parser = @import("netsurf");
+    const Client = @import("asyncio").Client;
+
+    document: *parser.DocumentHTML,
+    httpClient: *Client,
+};
+
+pub const js_config = jsruntime.Config(.{
     Console,
     DOM.Interfaces,
     Events.Interfaces,
@@ -42,6 +48,5 @@ pub const Interfaces = generate.Tuple(.{
     URL.Interfaces,
     Iterators.Interfaces,
     XMLSerializer.Interfaces,
-}){};
+}, ?UserContext);
 
-pub const UserContext = @import("user_context.zig").UserContext;

@@ -27,7 +27,7 @@ const parser = @import("netsurf");
 const CharacterData = @import("character_data.zig").CharacterData;
 const CDATASection = @import("cdata_section.zig").CDATASection;
 
-const UserContext = @import("../user_context.zig").UserContext;
+const UserContext = @import("../apiweb.zig").UserContext;
 
 // Text interfaces
 pub const Interfaces = .{
@@ -39,9 +39,9 @@ pub const Text = struct {
     pub const prototype = *CharacterData;
     pub const mem_guarantied = true;
 
-    pub fn constructor(userctx: UserContext, data: ?[]const u8) !*parser.Text {
+    pub fn constructor(userctx: ?UserContext, data: ?[]const u8) !*parser.Text {
         return parser.documentCreateTextNode(
-            parser.documentHTMLToDocument(userctx.document),
+            parser.documentHTMLToDocument(userctx.?.document),
             data orelse "",
         );
     }

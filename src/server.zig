@@ -992,8 +992,8 @@ pub fn run(
     try posix.listen(listener, 1);
 
     // create v8 vm
-    const vm = jsruntime.VM.init();
-    defer vm.deinit();
+    jsruntime.init();
+    defer jsruntime.deinit();
 
     const json_version_response = try buildJSONVersionResponse(allocator, address);
 

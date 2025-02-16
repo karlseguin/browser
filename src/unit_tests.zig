@@ -19,6 +19,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const parser = @import("netsurf");
+const jsruntime = @import("jsruntime");
+
+pub const IO = @import("asyncio").Wrapper(jsruntime.Loop);
+
 const Allocator = std.mem.Allocator;
 
 pub const std_options = std.Options{
@@ -55,6 +60,12 @@ pub fn main() !void {
 
     const printer = Printer.init();
     printer.fmt("\r\x1b[0K", .{}); // beginning of line and clear to end of line
+
+    jsruntime.init();
+    defer jsruntime.deinit();
+
+    try parser.init();
+    defer parser.deinit();
 
     for (builtin.test_functions) |t| {
         if (std.mem.eql(u8, t.name, "unit_tests.test_0")) {
