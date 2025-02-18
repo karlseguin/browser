@@ -20,13 +20,10 @@ const std = @import("std");
 
 const builtin = @import("builtin");
 
-const jsruntime_path = "vendor/zig-js-runtime/";
-const jsruntime = @import("vendor/zig-js-runtime/build.zig");
-const jsruntime_pkgs = jsruntime.packages(jsruntime_path);
 
 /// Do not rename this constant. It is scanned by some scripts to determine
 /// which zig version to install.
-const recommended_zig_version = jsruntime.recommended_zig_version;
+const recommended_zig_version = "0.13.0";
 
 pub fn build(b: *std.Build) !void {
     switch (comptime builtin.zig_version.order(std.SemanticVersion.parse(recommended_zig_version) catch unreachable)) {
@@ -45,8 +42,6 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardOptimizeOption(.{});
 
-    const options = jsruntime.buildOptions(b);
-
     // browser
     // -------
 
@@ -57,7 +52,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = mode,
     });
-    try common(b, exe, options);
+    try common(b, exe);
     b.installArtifact(exe);
 
     // run
@@ -70,28 +65,6 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // shell
-    // -----
-
-    // compile and install
-    const shell = b.addExecutable(.{
-        .name = "lightpanda-shell",
-        .root_source_file = b.path("src/main_shell.zig"),
-        .target = target,
-        .optimize = mode,
-    });
-    try common(b, shell, options);
-    try jsruntime_pkgs.add_shell(shell);
-
-    // run
-    const shell_cmd = b.addRunArtifact(shell);
-    if (b.args) |args| {
-        shell_cmd.addArgs(args);
-    }
-
-    // step
-    const shell_step = b.step("shell", "Run JS shell");
-    shell_step.dependOn(&shell_cmd.step);
 
     // test
     // ----
@@ -103,12 +76,8 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = mode,
     });
-    try common(b, tests, options);
+    try common(b, tests);
 
-    // add jsruntime pretty deps
-    tests.root_module.addAnonymousImport("pretty", .{
-        .root_source_file = b.path("vendor/zig-js-runtime/src/pretty.zig"),
-    });
 
     const run_tests = b.addRunArtifact(tests);
     if (b.args) |args| {
@@ -129,7 +98,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = mode,
     });
-    try common(b, unit_tests, options);
+    try common(b, unit_tests);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     if (b.args) |args| {
@@ -150,7 +119,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = mode,
     });
-    try common(b, wpt, options);
+    try common(b, wpt);
 
     // run
     const wpt_cmd = b.addRunArtifact(wpt);
@@ -165,25 +134,100 @@ pub fn build(b: *std.Build) !void {
 fn common(
     b: *std.Build,
     step: *std.Build.Step.Compile,
-    options: jsruntime.Options,
 ) !void {
     const target = step.root_module.resolved_target.?;
-    const jsruntimemod = try jsruntime_pkgs.module(
-        b,
-        options,
-        step.root_module.optimize.?,
-        target,
-    );
-    step.root_module.addImport("jsruntime", jsruntimemod);
 
-    const netsurf = try moduleNetSurf(b, target);
-    netsurf.addImport("jsruntime", jsruntimemod);
-    step.root_module.addImport("netsurf", netsurf);
+    {
+        const mod = b.createModule(.{
+            .root_source_file = b.path("vendor/zig-v8/src/v8.zig"),
+            .link_libc = false,
+            .link_libcpp = false,
+        });
+        mod.addIncludePath(b.path("vendor/zig-v8/src"));
+        step.root_module.addImport("v8", mod);
 
-    const asyncio = b.addModule("asyncio", .{
-        .root_source_file = b.path("vendor/zig-async-io/src/lib.zig"),
-    });
-    step.root_module.addImport("asyncio", asyncio);
+    }
+
+    {
+        // FIXME: we are tied to native v8 builds, currently:
+        // - aarch64-macos
+        // - x86_64-linux
+        const os = step.root_module.resolved_target.?.result.os.tag;
+        const arch = step.root_module.resolved_target.?.result.cpu.arch;
+        switch (os) {
+            .linux => blk: {
+                // TODO: why do we need it? It should be linked already when we built v8
+                step.root_module.link_libcpp = true;
+                break :blk;
+            },
+            .macos => blk: {
+                if (arch != .aarch64) {
+                    std.debug.print("only aarch64 are supported on macos builds\n", .{});
+                    return error.ArchNotSupported;
+                }
+                break :blk;
+            },
+            else => return error.OsNotSupported,
+        }
+
+        const lib_path = try std.fmt.allocPrint(
+            step.root_module.owner.allocator,
+            "vendor/v8/{s}-{s}/{s}/libc_v8.a",
+            .{@tagName(arch), @tagName(os), "debug" },
+        );
+        step.root_module.addObjectFile(b.path(lib_path));
+    }
+
+    {
+        const mod = step.root_module;
+        const os = target.result.os.tag;
+        const arch = target.result.cpu.arch;
+
+        // iconv
+        const libiconv_lib_path = try std.fmt.allocPrint(
+            mod.owner.allocator,
+            "vendor/libiconv/out/{s}-{s}/lib/libiconv.a",
+            .{ @tagName(os), @tagName(arch) },
+        );
+        const libiconv_include_path = try std.fmt.allocPrint(
+            mod.owner.allocator,
+            "vendor/libiconv/out/{s}-{s}/lib/libiconv.a",
+            .{ @tagName(os), @tagName(arch) },
+        );
+        mod.addObjectFile(b.path(libiconv_lib_path));
+        mod.addIncludePath(b.path(libiconv_include_path));
+
+        // mimalloc
+        mod.addImport("mimalloc", (try moduleMimalloc(b, target)));
+
+        // netsurf libs
+        const ns = "vendor/netsurf";
+        const ns_include_path = try std.fmt.allocPrint(
+            mod.owner.allocator,
+            ns ++ "/out/{s}-{s}/include",
+            .{ @tagName(os), @tagName(arch) },
+        );
+        mod.addIncludePath(b.path(ns_include_path));
+
+        const libs: [4][]const u8 = .{
+            "libdom",
+            "libhubbub",
+            "libparserutils",
+            "libwapcaplet",
+        };
+        inline for (libs) |lib| {
+            const ns_lib_path = try std.fmt.allocPrint(
+                mod.owner.allocator,
+                ns ++ "/out/{s}-{s}/lib/" ++ lib ++ ".a",
+                .{ @tagName(os), @tagName(arch) },
+            );
+            mod.addObjectFile(b.path(ns_lib_path));
+            mod.addIncludePath(b.path(ns ++ "/" ++ lib ++ "/src"));
+        }
+    }
+
+    // const netsurf = try moduleNetSurf(b, target);
+    // step.root_module.addImport("netsurf", netsurf);
 
     const tlsmod = b.addModule("tls", .{
         .root_source_file = b.path("vendor/tls.zig/src/root.zig"),

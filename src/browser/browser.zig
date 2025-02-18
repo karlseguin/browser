@@ -21,13 +21,12 @@ const builtin = @import("builtin");
 
 const Types = @import("root").Types;
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 const Loader = @import("loader.zig").Loader;
 const Dump = @import("dump.zig");
 const Mime = @import("mime.zig").Mime;
 
-const jsruntime = @import("jsruntime");
-const Loop = jsruntime.Loop;
+const jsruntime = @import("../runtime/api.zig");
 const Env = jsruntime.Env;
 const Module = jsruntime.Module;
 
@@ -44,7 +43,7 @@ const storage = @import("../storage/storage.zig");
 const FetchResult = @import("../http/Client.zig").Client.FetchResult;
 
 const UserContext = @import("../user_context.zig").UserContext;
-const HttpClient = @import("asyncio").Client;
+const HttpClient = @import("../http/Client.zig");
 
 const polyfill = @import("../polyfill/polyfill.zig");
 
@@ -62,12 +61,12 @@ pub const Browser = struct {
 
     const uri = "about:blank";
 
-    pub fn init(self: *Browser, alloc: std.mem.Allocator, loop: *Loop, vm: jsruntime.VM) !void {
+    pub fn init(self: *Browser, alloc: std.mem.Allocator,vm: jsruntime.VM) !void {
         // We want to ensure the caller initialised a VM, but the browser
         // doesn't use it directly...
         _ = vm;
 
-        try Session.init(&self.session, alloc, loop, uri);
+        try Session.init(&self.session, alloc, uri);
     }
 
     pub fn deinit(self: *Browser) void {
@@ -77,10 +76,9 @@ pub const Browser = struct {
     pub fn newSession(
         self: *Browser,
         alloc: std.mem.Allocator,
-        loop: *jsruntime.Loop,
     ) !void {
         self.session.deinit();
-        try Session.init(&self.session, alloc, loop, uri);
+        try Session.init(&self.session, alloc, uri);
     }
 
     pub fn currentPage(self: *Browser) ?*Page {
@@ -121,7 +119,7 @@ pub const Session = struct {
 
     jstypes: [Types.len]usize = undefined,
 
-    fn init(self: *Session, alloc: std.mem.Allocator, loop: *Loop, uri: []const u8) !void {
+    fn init(self: *Session, alloc: std.mem.Allocator, uri: []const u8) !void {
         self.* = Session{
             .uri = uri,
             .alloc = alloc,
@@ -132,7 +130,7 @@ pub const Session = struct {
             .httpClient = undefined,
         };
 
-        Env.init(&self.env, self.arena.allocator(), loop, null);
+        Env.init(&self.env, self.arena.allocator(), null);
         self.httpClient = .{ .allocator = alloc };
         try self.env.load(&self.jstypes);
     }
@@ -294,24 +292,25 @@ pub const Page = struct {
     }
 
     pub fn wait(self: *Page) !void {
+        _ = self;
 
-        // try catch
-        var try_catch: jsruntime.TryCatch = undefined;
-        try_catch.init(self.session.env);
-        defer try_catch.deinit();
+        // // try catch
+        // var try_catch: jsruntime.TryCatch = undefined;
+        // try_catch.init(self.session.env);
+        // defer try_catch.deinit();
 
-        self.session.env.wait() catch |err| {
-            // the js env could not be started if the document wasn't an HTML.
-            if (err == error.EnvNotStarted) return;
+        // self.session.env.wait() catch |err| {
+        //     // the js env could not be started if the document wasn't an HTML.
+        //     if (err == error.EnvNotStarted) return;
 
-            const alloc = self.arena.allocator();
-            if (try try_catch.err(alloc, self.session.env)) |msg| {
-                defer alloc.free(msg);
-                log.info("wait error: {s}", .{msg});
-                return;
-            }
-        };
-        log.debug("wait: OK", .{});
+        //     const alloc = self.arena.allocator();
+        //     if (try try_catch.err(alloc, self.session.env)) |msg| {
+        //         defer alloc.free(msg);
+        //         log.info("wait error: {s}", .{msg});
+        //         return;
+        //     }
+        // };
+        // log.debug("wait: OK", .{});
     }
 
     // spec reference: https://html.spec.whatwg.org/#document-lifecycle
@@ -437,7 +436,7 @@ pub const Page = struct {
         // replace the user context document with the new one.
         try self.session.env.setUserContext(.{
             .document = html_doc,
-            .httpClient = &self.session.httpClient,
+            .loader = &self.session.loader,
         });
 
         // browse the DOM tree to retrieve scripts

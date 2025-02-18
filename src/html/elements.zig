@@ -17,10 +17,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 const std = @import("std");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 const generate = @import("../generate.zig");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Case = jsruntime.test_utils.Case;
 const checkCases = jsruntime.test_utils.checkCases;
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Case = jsruntime.test_utils.Case;
 const checkCases = jsruntime.test_utils.checkCases;
 

@@ -19,17 +19,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("runtime/api.zig");
 
 const Browser = @import("browser/browser.zig").Browser;
 const server = @import("server.zig");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 const apiweb = @import("apiweb.zig");
 
 pub const Types = jsruntime.reflect(apiweb.Interfaces);
 pub const UserContext = apiweb.UserContext;
-pub const IO = @import("asyncio").Wrapper(jsruntime.Loop);
 
 // Simple blocking websocket connection model
 // ie. 1 thread per ws connection without thread pool and epoll/kqueue
@@ -239,11 +238,8 @@ pub fn main() !void {
                 return printUsageExit(opts.execname, 1);
             };
 
-            var loop = try jsruntime.Loop.init(alloc);
-            defer loop.deinit();
-
             const timeout = std.time.ns_per_s * @as(u64, opts.timeout);
-            server.run(alloc, address, timeout, &loop) catch |err| {
+            server.run(alloc, address, timeout) catch |err| {
                 log.err("Server error", .{});
                 return err;
             };
@@ -256,13 +252,10 @@ pub fn main() !void {
             const vm = jsruntime.VM.init();
             defer vm.deinit();
 
-            // loop
-            var loop = try jsruntime.Loop.init(alloc);
-            defer loop.deinit();
 
             // browser
             var browser = Browser{};
-            try Browser.init(&browser, alloc, &loop, vm);
+            try Browser.init(&browser, alloc, vm);
             defer browser.deinit();
 
             // page

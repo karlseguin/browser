@@ -26,7 +26,7 @@ const IncomingMessage = @import("msg.zig").IncomingMessage;
 const Input = @import("msg.zig").Input;
 const css = @import("../dom/css.zig");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 const log = std.log.scoped(.cdp);
 

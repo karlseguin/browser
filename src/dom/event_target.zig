@@ -18,13 +18,13 @@
 
 const std = @import("std");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Callback = jsruntime.Callback;
 const JSObjectID = jsruntime.JSObjectID;
 const Case = jsruntime.test_utils.Case;
 const checkCases = jsruntime.test_utils.checkCases;
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 const EventHandler = @import("../events/event.zig").EventHandler;
 
 const DOMException = @import("exceptions.zig").DOMException;

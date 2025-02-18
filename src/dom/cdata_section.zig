@@ -18,7 +18,7 @@
 
 const std = @import("std");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 const Text = @import("text.zig").Text;
 

@@ -19,7 +19,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 
 const server = @import("../server.zig");
 const Ctx = server.Ctx;

@@ -18,13 +18,13 @@
 
 const std = @import("std");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Callback = jsruntime.Callback;
 
 const EventTarget = @import("../dom/event_target.zig").EventTarget;
 const EventHandler = @import("../events/event.zig").EventHandler;
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 const log = std.log.scoped(.xhr);
 

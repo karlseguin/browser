@@ -28,7 +28,7 @@ const c = @cImport({
 
 const mimalloc = @import("mimalloc");
 
-const Callback = @import("jsruntime").Callback;
+const Callback = @import("../runtime/api.zig").Callback;
 
 // init initializes netsurf lib.
 // init starts a mimalloc heap arena for the netsurf session. The caller must

@@ -19,7 +19,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Env = jsruntime.Env;
 
 const fetch = @import("fetch.zig").fetch_polyfill;

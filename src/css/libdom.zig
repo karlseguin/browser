@@ -18,7 +18,7 @@
 
 const std = @import("std");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 // Node implementation with Netsurf Libdom C lib.
 pub const Node = struct {

@@ -18,7 +18,7 @@
 
 const std = @import("std");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 pub const Walker = union(enum) {
     walkerDepthFirst: WalkerDepthFirst,

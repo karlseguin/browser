@@ -20,7 +20,7 @@ const std = @import("std");
 
 const jsruntime = @import("jsruntime");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 const apiweb = @import("apiweb.zig");
 const Window = @import("html/window.zig").Window;
 const storage = @import("storage/storage.zig");

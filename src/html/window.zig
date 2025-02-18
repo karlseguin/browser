@@ -18,11 +18,10 @@
 
 const std = @import("std");
 
-const parser = @import("netsurf");
-const jsruntime = @import("jsruntime");
+const parser = @import("../netsurf/netsurf.zig");
+const jsruntime = @import("../runtime/api.zig");
 const Callback = jsruntime.Callback;
 const CallbackArg = jsruntime.CallbackArg;
-const Loop = jsruntime.Loop;
 
 const EventTarget = @import("../dom/event_target.zig").EventTarget;
 const Navigator = @import("navigator.zig").Navigator;
@@ -124,24 +123,30 @@ pub const Window = struct {
     }
 
     // TODO handle callback arguments.
-    pub fn _setTimeout(self: *Window, loop: *Loop, cbk: Callback, delay: ?u32) !u32 {
-        if (self.timeoutid >= self.timeoutids.len) return error.TooMuchTimeout;
+    pub fn _setTimeout(self: *Window, cbk: Callback, delay: ?u32) !u32 {
+        _ = self;
+        _ = cbk;
+        _ = delay;
+        return 0;
+        // if (self.timeoutid >= self.timeoutids.len) return error.TooMuchTimeout;
 
-        const ddelay: u63 = delay orelse 0;
-        const id = loop.timeout(ddelay * std.time.ns_per_ms, cbk);
+        // const ddelay: u63 = delay orelse 0;
+        // const id = loop.timeout(ddelay * std.time.ns_per_ms, cbk);
 
-        self.timeoutids[self.timeoutid] = id;
-        defer self.timeoutid += 1;
+        // self.timeoutids[self.timeoutid] = id;
+        // defer self.timeoutid += 1;
 
-        return self.timeoutid;
+        // return self.timeoutid;
     }
 
-    pub fn _clearTimeout(self: *Window, loop: *Loop, id: u32) void {
-        // I do would prefer return an error in this case, but it seems some JS
-        // uses invalid id, in particular id 0.
-        // So we silently ignore invalid id for now.
-        if (id >= self.timeoutid) return;
+    pub fn _clearTimeout(self: *Window, id: u32) void {
+        _ = self;
+        _ = id;
+        // // I do would prefer return an error in this case, but it seems some JS
+        // // uses invalid id, in particular id 0.
+        // // So we silently ignore invalid id for now.
+        // if (id >= self.timeoutid) return;
 
-        loop.cancel(self.timeoutids[id], null);
+        // loop.cancel(self.timeoutids[id], null);
     }
 };

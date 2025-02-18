@@ -18,7 +18,7 @@
 
 const std = @import("std");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Case = jsruntime.test_utils.Case;
 const checkCases = jsruntime.test_utils.checkCases;
 const runScript = jsruntime.test_utils.runScript;
@@ -26,7 +26,7 @@ const Variadic = jsruntime.Variadic;
 
 const generate = @import("../generate.zig");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 const EventTarget = @import("event_target.zig").EventTarget;
 

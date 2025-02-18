@@ -19,11 +19,11 @@
 const std = @import("std");
 const allocPrint = std.fmt.allocPrint;
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Case = jsruntime.test_utils.Case;
 const checkCases = jsruntime.test_utils.checkCases;
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 // https://webidl.spec.whatwg.org/#idl-DOMException
 pub const DOMException = struct {

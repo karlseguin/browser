@@ -18,7 +18,7 @@
 
 const generate = @import("generate.zig");
 
-const Console = @import("jsruntime").Console;
+const Console = @import("runtime/api.zig").Console;
 
 const DOM = @import("dom/dom.zig");
 const HTML = @import("html/html.zig");

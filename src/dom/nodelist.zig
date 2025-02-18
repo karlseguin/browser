@@ -18,9 +18,9 @@
 
 const std = @import("std");
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Callback = jsruntime.Callback;
 const CallbackResult = jsruntime.CallbackResult;
 const Case = jsruntime.test_utils.Case;

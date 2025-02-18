@@ -24,19 +24,12 @@ const posix = std.posix;
 
 const Allocator = std.mem.Allocator;
 
-const jsruntime = @import("jsruntime");
-const Completion = jsruntime.IO.Completion;
-const AcceptError = jsruntime.IO.AcceptError;
-const RecvError = jsruntime.IO.RecvError;
-const SendError = jsruntime.IO.SendError;
-const CloseError = jsruntime.IO.CloseError;
-const CancelError = jsruntime.IO.CancelOneError;
-const TimeoutError = jsruntime.IO.TimeoutError;
+const jsruntime = @import("runtime/api.zig");
+
 
 const Browser = @import("browser/browser.zig").Browser;
 const cdp = @import("cdp/cdp.zig");
 
-const IOError = AcceptError || RecvError || SendError || CloseError || TimeoutError || CancelError;
 const HTTPError = error{
     OutOfMemory,
     RequestTooLarge,
@@ -57,9 +50,6 @@ const WebSocketError = error{
     InvalidContinuation,
     NestedFragementation,
 };
-const Error = IOError || cdp.Error || HTTPError || WebSocketError;
-
-const TimeoutCheck = std.time.ns_per_ms * 100;
 
 const log = std.log.scoped(.server);
 
@@ -77,21 +67,11 @@ pub const Ctx = Server;
 
 const Server = struct {
     allocator: Allocator,
-    loop: *jsruntime.Loop,
 
     // internal fields
     listener: posix.socket_t,
-    client: ?Client(*Server) = null,
     timeout: u64,
-
-    // a memory poor for our Send objects
-    send_pool: std.heap.MemoryPool(Send),
-
-    // I/O fields
-    conn_completion: Completion,
-    close_completion: Completion,
-    accept_completion: Completion,
-    timeout_completion: Completion,
+    client: ?Client(*Server) = null,
 
     // used when gluing the session id to the inspector message
     scrap: std.ArrayListUnmanaged(u8) = .{},
@@ -107,158 +87,46 @@ const Server = struct {
 
     pub fn deinit(self: *Ctx) void {
         self.state.deinit();
-        self.send_pool.deinit();
         self.allocator.free(self.json_version_response);
     }
 
-    fn queueAccept(self: *Server) void {
-        log.info("accepting new conn...", .{});
-        self.loop.io.accept(
-            *Server,
-            self,
-            callbackAccept,
-            &self.accept_completion,
-            self.listener,
-        );
+    fn accept(self: *Server) !void {
+        while (true) {
+            var client_address: net.Address = undefined;
+            var client_address_len: posix.socklen_t = @sizeOf(net.Address);
+
+            const socket = posix.accept(self.listener, &client_address.any, &client_address_len, 0) catch |err| {
+                // Rare that this happens, but in later parts we'll
+                // see examples where it does.
+                std.debug.print("error accept: {}\n", .{err});
+                continue;
+            };
+            defer posix.close(socket);
+
+            self.handleClient(socket) catch {};
+        }
     }
 
-    fn callbackAccept(
-        self: *Server,
-        completion: *Completion,
-        result: AcceptError!posix.socket_t,
-    ) void {
-        std.debug.assert(completion == &self.accept_completion);
-
-        const socket = result catch |err| {
-            log.err("accept error: {any}", .{err});
-            self.queueAccept();
-            return;
-        };
-
+    fn handleClient(self: *Server, socket: posix.socket_t) !void {
         self.newSession() catch |err| {
             log.err("new session error: {any}", .{err});
-            self.queueClose(socket);
-            return;
+            return err;
         };
 
-        log.info("client connected", .{});
         self.client = Client(*Server).init(socket, self);
-        self.queueRead();
-        self.queueTimeout();
-    }
+        defer if (self.client) |*c| {
+            c.deinit();
+            self.client = null;
+        };
 
-    fn queueTimeout(self: *Server) void {
-        self.loop.io.timeout(
-            *Server,
-            self,
-            callbackTimeout,
-            &self.timeout_completion,
-            TimeoutCheck,
-        );
-    }
-
-    fn callbackTimeout(
-        self: *Server,
-        completion: *Completion,
-        result: TimeoutError!void,
-    ) void {
-        std.debug.assert(completion == &self.timeout_completion);
-
-        const client = &(self.client orelse return);
-
-        if (result) |_| {
-            if (now().since(client.last_active) > self.timeout) {
-                // close current connection
-                log.debug("conn timeout, closing...", .{});
-                client.close(.timeout);
+        const client = &self.client.?;
+        while(true) {
+            const n = try posix.read(socket, client.readBuf());
+            const more = try client.processData(n);
+            if (more == false) {
                 return;
             }
-        } else |err| {
-            log.err("timeout error: {any}", .{err});
         }
-
-        // We re-queue this if the timeout hasn't been exceeded or on some
-        // very unlikely IO timeout error.
-        // AKA: we don't requeue this if the connection timed out and we
-        // closed the connection.s
-        self.queueTimeout();
-    }
-
-    fn queueRead(self: *Server) void {
-        if (self.client) |*client| {
-            self.loop.io.recv(
-                *Server,
-                self,
-                callbackRead,
-                &self.conn_completion,
-                client.socket,
-                client.readBuf(),
-            );
-        }
-    }
-
-    fn callbackRead(
-        self: *Server,
-        completion: *Completion,
-        result: RecvError!usize,
-    ) void {
-        std.debug.assert(completion == &self.conn_completion);
-
-        var client = &(self.client orelse return);
-
-        const size = result catch |err| {
-            log.err("read error: {any}", .{err});
-            self.queueClose(client.socket);
-            return;
-        };
-
-        const more = client.processData(size) catch |err| {
-            log.err("Client Processing Error: {}\n", .{err});
-            return;
-        };
-
-        // if more == false, the client is disconnecting
-        if (more) {
-            self.queueRead();
-        }
-    }
-
-    fn queueSend(
-        self: *Server,
-        socket: posix.socket_t,
-        data: []const u8,
-        free_when_done: bool,
-    ) !void {
-        const sd = try self.send_pool.create();
-        errdefer self.send_pool.destroy(sd);
-
-        sd.* = .{
-            .data = data,
-            .unsent = data,
-            .server = self,
-            .socket = socket,
-            .completion = undefined,
-            .free_when_done = free_when_done,
-        };
-        sd.queueSend();
-    }
-
-    fn queueClose(self: *Server, socket: posix.socket_t) void {
-        self.loop.io.close(
-            *Server,
-            self,
-            callbackClose,
-            &self.close_completion,
-            socket,
-        );
-    }
-
-    fn callbackClose(self: *Server, completion: *Completion, _: CloseError!void) void {
-        std.debug.assert(completion == &self.close_completion);
-        if (self.client != null) {
-            self.client = null;
-        }
-        self.queueAccept();
     }
 
     fn handleCDP(self: *Server, cmd: []const u8) !void {
@@ -289,7 +157,7 @@ const Server = struct {
     }
 
     fn newSession(self: *Server) !void {
-        try self.browser.newSession(self.allocator, self.loop);
+        try self.browser.newSession(self.allocator);
         try self.browser.session.initInspector(
             self,
             inspectorResponse,
@@ -374,76 +242,8 @@ const Server = struct {
             log.debug("Failed to write inspector message to client: {}", .{err});
             // don't bother trying to cleanly close the client, if sendWS fails
             // we're almost certainly in a non-recoverable state (i.e. OOM)
-            self.queueClose(client.socket);
+            posix.close(client.socket);
         };
-    }
-};
-
-// I/O Send
-// --------
-
-// NOTE: to allow concurrent send we create each time a dedicated context
-// (with its own completion), allocated on the heap.
-// After the send (on the sendCbk) the dedicated context will be destroy
-// and the data slice will be free.
-const Send = struct {
-    // The full data to be sent
-    data: []const u8,
-
-    // Whether or not to free the data once the message is sent (or fails to)
-    // send. This is false in cases where the message is comptime known
-    free_when_done: bool,
-
-    // Any unsent data we have. Initially unsent == data, but as part of the
-    // message is succesfully sent, unsent becomes a smaller and smaller slice
-    // of data
-    unsent: []const u8,
-
-    server: *Server,
-    completion: Completion,
-    socket: posix.socket_t,
-
-    fn deinit(self: *Send) void {
-        var server = self.server;
-        if (self.free_when_done) {
-            server.allocator.free(self.data);
-        }
-        server.send_pool.destroy(self);
-    }
-
-    fn queueSend(self: *Send) void {
-        self.server.loop.io.send(
-            *Send,
-            self,
-            sendCallback,
-            &self.completion,
-            self.socket,
-            self.unsent,
-        );
-    }
-
-    fn sendCallback(
-        self: *Send,
-        _: *Completion,
-        result: SendError!usize,
-    ) void {
-        const sent = result catch |err| {
-            log.err("send error: {any}", .{err});
-            if (self.server.client) |*client| {
-                self.server.queueClose(client.socket);
-            }
-            self.deinit();
-            return;
-        };
-
-        if (sent == self.unsent.len) {
-            self.deinit();
-            return;
-        }
-
-        // partial send, re-queue a send for whatever we have left
-        self.unsent = self.unsent[sent..];
-        self.queueSend();
     }
 };
 
@@ -461,7 +261,6 @@ fn Client(comptime S: type) type {
     const CLOSE_NORMAL = [_]u8{ 136, 2, 3, 232 }; // code: 1000
     const CLOSE_TOO_BIG = [_]u8{ 136, 2, 3, 241 }; // 1009
     const CLOSE_PROTOCOL_ERROR = [_]u8{ 136, 2, 3, 234 }; //code: 1002
-    const CLOSE_TIMEOUT = [_]u8{ 136, 2, 15, 160 }; // code: 4000
 
     return struct {
         // The client is initially serving HTTP requests but, under normal circumstances
@@ -489,13 +288,7 @@ fn Client(comptime S: type) type {
             };
         }
 
-        fn close(self: *Self, close_code: CloseCode) void {
-            if (self.mode == .websocket) {
-                switch (close_code) {
-                    .timeout => self.send(&CLOSE_TIMEOUT, false) catch {},
-                }
-            }
-            self.server.queueClose(self.socket);
+        fn deinit(self: *Self) void {
             self.reader.deinit();
         }
 
@@ -516,11 +309,9 @@ fn Client(comptime S: type) type {
             }
         }
 
-        fn processHTTPRequest(self: *Self) HTTPError!void {
+        fn processHTTPRequest(self: *Self) !void {
             std.debug.assert(self.reader.pos == 0);
             const request = self.reader.buf[0..self.reader.len];
-
-            errdefer self.server.queueClose(self.socket);
 
             if (request.len > MAX_HTTP_REQUEST_SIZE) {
                 self.writeHTTPErrorResponse(413, "Request too large");
@@ -678,10 +469,7 @@ fn Client(comptime S: type) type {
         fn processWebsocketMessage(self: *Self) !bool {
             var reader = &self.reader;
 
-            errdefer {
-                reader.cleanup();
-                self.server.queueClose(self.socket);
-            }
+            errdefer reader.cleanup();
 
             while (true) {
                 const msg = reader.next() catch |err| {
@@ -702,7 +490,6 @@ fn Client(comptime S: type) type {
                     .ping => try self.sendPong(msg.data),
                     .close => {
                         self.send(&CLOSE_NORMAL, false) catch {};
-                        self.server.queueClose(self.socket);
                         return false;
                     },
                     .text, .binary => try self.server.handleCDP(msg.data),
@@ -797,7 +584,15 @@ fn Client(comptime S: type) type {
         }
 
         fn send(self: *Self, data: []const u8, free_when_done: bool) !void {
-            return self.server.queueSend(self.socket, data, free_when_done);
+            defer if (free_when_done) {
+                self.server.allocator.free(data);
+            };
+
+            var i: usize = 0;
+            const socket = self.socket;
+            while (i < data.len) {
+                i += try posix.write(socket, data[i..]);
+            }
         }
     };
 }
@@ -1051,7 +846,6 @@ pub fn run(
     allocator: Allocator,
     address: net.Address,
     timeout: u64,
-    loop: *jsruntime.Loop,
 ) !void {
     if (comptime builtin.is_test) {
         // There's bunch of code that won't compiler in a test build (because
@@ -1062,7 +856,7 @@ pub fn run(
     }
 
     // create socket
-    const flags = posix.SOCK.STREAM | posix.SOCK.CLOEXEC | posix.SOCK.NONBLOCK;
+    const flags = posix.SOCK.STREAM | posix.SOCK.CLOEXEC;
     const listener = try posix.socket(address.any.family, flags, posix.IPPROTO.TCP);
     defer posix.close(listener);
 
@@ -1084,41 +878,25 @@ pub fn run(
 
     // browser
     var browser: Browser = undefined;
-    try Browser.init(&browser, allocator, loop, vm);
+    try Browser.init(&browser, allocator, vm);
     defer browser.deinit();
 
     const json_version_response = try buildJSONVersionResponse(allocator, address);
 
     var server = Server{
-        .loop = loop,
         .timeout = timeout,
         .browser = &browser,
         .listener = listener,
         .allocator = allocator,
-        .conn_completion = undefined,
-        .close_completion = undefined,
-        .accept_completion = undefined,
-        .timeout_completion = undefined,
         .state = cdp.State.init(browser.session.alloc),
         .json_version_response = json_version_response,
-        .send_pool = std.heap.MemoryPool(Send).init(allocator),
     };
     defer server.deinit();
 
     try browser.session.initInspector(&server, Server.inspectorResponse, Server.inspectorEvent);
 
-    // accept an connection
-    server.queueAccept();
-
-    // infinite loop on I/O events, either:
-    // - cmd from incoming connection on server socket
-    // - JS callbacks events from scripts
-    while (true) {
-        try loop.io.run_for_ns(10 * std.time.ns_per_ms);
-        if (loop.cbk_error) {
-            log.err("JS error", .{});
-        }
-    }
+    // blocks
+    return server.accept();
 }
 
 // Utils
@@ -1739,26 +1517,8 @@ const MockServer = struct {
         self.cdp.deinit(allocator);
     }
 
-    fn queueClose(self: *MockServer, _: anytype) void {
-        self.closed = true;
-    }
-
     fn handleCDP(self: *MockServer, message: []const u8) !void {
         const owned = try self.allocator.dupe(u8, message);
         try self.cdp.append(self.allocator, owned);
-    }
-
-    fn queueSend(
-        self: *MockServer,
-        socket: posix.socket_t,
-        data: []const u8,
-        free_when_done: bool,
-    ) !void {
-        _ = socket;
-        const owned = try self.allocator.dupe(u8, data);
-        try self.sent.append(self.allocator, owned);
-        if (free_when_done) {
-            testing.allocator.free(data);
-        }
     }
 };

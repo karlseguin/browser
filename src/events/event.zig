@@ -20,13 +20,13 @@ const std = @import("std");
 
 const generate = @import("../generate.zig");
 
-const jsruntime = @import("jsruntime");
+const jsruntime = @import("../runtime/api.zig");
 const Callback = jsruntime.Callback;
 const CallbackResult = jsruntime.CallbackResult;
 const Case = jsruntime.test_utils.Case;
 const checkCases = jsruntime.test_utils.checkCases;
 
-const parser = @import("netsurf");
+const parser = @import("../netsurf/netsurf.zig");
 
 const DOMException = @import("../dom/exceptions.zig").DOMException;
 const EventTarget = @import("../dom/event_target.zig").EventTarget;
