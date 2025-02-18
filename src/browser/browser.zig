@@ -127,7 +127,7 @@ pub const Session = struct {
             .alloc = alloc,
             .arena = std.heap.ArenaAllocator.init(alloc),
             .window = Window.create(null, .{ .agent = user_agent }),
-            .loader = Loader.init(alloc),
+            .loader = try Loader.init(alloc),
             .storageShed = storage.Shed.init(alloc),
             .httpClient = undefined,
         };
@@ -644,11 +644,18 @@ pub const Page = struct {
             const tag = try parser.elementHTMLGetTagType(@as(*parser.ElementHTML, @ptrCast(e)));
             if (tag != .script) return null;
 
+            const kind: Kind = blk: {
+                const stype = try parser.elementGetAttribute(e, "type");
+                if (stype == null or stype.?.len == 0) break :blk .javascript;
+                if (std.mem.eql(u8, stype.?, "application/javascript")) break :blk .javascript;
+                if (std.mem.eql(u8, stype.?, "module")) break :blk .module;
+                break :blk .unknown;
+            };
+
             return .{
                 .element = e,
-                .kind = kind(try parser.elementGetAttribute(e, "type")),
+                .kind = kind,
                 .isasync = try parser.elementGetAttribute(e, "async") != null,
-
                 .src = try parser.elementGetAttribute(e, "src") orelse "inline",
             };
         }
@@ -658,13 +665,6 @@ pub const Page = struct {
         // > type indicates that the script is a "classic script", containing
         // > JavaScript code.
         // https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script#attribute_is_not_set_default_an_empty_string_or_a_javascript_mime_type
-        fn kind(stype: ?[]const u8) Kind {
-            if (stype == null or stype.?.len == 0) return .javascript;
-            if (std.mem.eql(u8, stype.?, "application/javascript")) return .javascript;
-            if (std.mem.eql(u8, stype.?, "module")) return .module;
-
-            return .unknown;
-        }
 
         fn eval(self: Script, alloc: std.mem.Allocator, env: Env, body: []const u8) !void {
             var try_catch: jsruntime.TryCatch = undefined;

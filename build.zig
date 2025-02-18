@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) !void {
     // compile
     const tests = b.addTest(.{
         .root_source_file = b.path("src/main_tests.zig"),
-        .test_runner = b.path("src/main_tests.zig"),
+        .test_runner = .{ .path = b.path("src/main_tests.zig"), .mode = .simple },
         .target = target,
         .optimize = mode,
     });
@@ -125,7 +125,7 @@ pub fn build(b: *std.Build) !void {
     // compile
     const unit_tests = b.addTest(.{
         .root_source_file = b.path("src/unit_tests.zig"),
-        .test_runner = b.path("src/unit_tests.zig"),
+        .test_runner = .{ .path = b.path("src/unit_tests.zig"), .mode = .simple },
         .target = target,
         .optimize = mode,
     });
@@ -186,7 +186,7 @@ fn common(
     step.root_module.addImport("asyncio", asyncio);
 
     const tlsmod = b.addModule("tls", .{
-        .root_source_file = b.path("vendor/tls.zig/src/main.zig"),
+        .root_source_file = b.path("vendor/tls.zig/src/root.zig"),
     });
     step.root_module.addImport("tls", tlsmod);
 }

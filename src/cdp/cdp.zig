@@ -258,7 +258,7 @@ pub const SessionID = enum {
     CONTEXTSESSIONID0497A05C95417CF4,
 
     pub fn parse(str: []const u8) !SessionID {
-        inline for (@typeInfo(SessionID).Enum.fields) |enumField| {
+        inline for (@typeInfo(SessionID).@"enum".fields) |enumField| {
             if (std.mem.eql(u8, str, enumField.name)) {
                 return @field(SessionID, enumField.name);
             }

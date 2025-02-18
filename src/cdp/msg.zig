@@ -149,7 +149,7 @@ pub const IncomingMessage = struct {
 
         self.scanUntil("params") catch |err| {
             // handle nullable type
-            if (@typeInfo(T) == .Optional) {
+            if (@typeInfo(T) == .optional) {
                 if (err == error.InvalidToken or err == error.EndOfDocument) {
                     return null;
                 }

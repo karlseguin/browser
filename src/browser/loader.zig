@@ -19,6 +19,7 @@
 const std = @import("std");
 const Client = @import("../http/Client.zig");
 
+const disable_tls = std.options.http_disable_tls;
 const user_agent = @import("browser.zig").user_agent;
 
 pub const Loader = struct {
@@ -36,7 +37,7 @@ pub const Loader = struct {
         }
     };
 
-    pub fn init(alloc: std.mem.Allocator) Loader {
+    pub fn init(alloc: std.mem.Allocator) !Loader {
         return Loader{
             .client = Client{
                 .allocator = alloc,
