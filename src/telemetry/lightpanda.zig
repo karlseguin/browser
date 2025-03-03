@@ -7,7 +7,7 @@ const Client = @import("asyncio").Client;
 
 const log = std.log.scoped(.telemetry);
 
-const URL = "https://stats.lightpanda.io";
+const URL = "https://httpbin.io/post";
 
 pub const LightPanda = struct {
     uri: std.Uri,
