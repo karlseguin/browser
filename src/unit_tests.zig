@@ -383,5 +383,4 @@ test {
     std.testing.refAllDecls(@import("cdp/cdp.zig"));
     std.testing.refAllDecls(@import("log.zig"));
     std.testing.refAllDecls(@import("telemetry/telemetry.zig"));
-    std.testing.refAllDecls(@import("telemetry/plausible.zig"));
 }
