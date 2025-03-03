@@ -34,6 +34,7 @@ const CloseError = jsruntime.IO.CloseError;
 const CancelError = jsruntime.IO.CancelOneError;
 const TimeoutError = jsruntime.IO.TimeoutError;
 
+const App = @import("app.zig").App;
 const CDP = @import("cdp/cdp.zig").CDP;
 
 const TimeoutCheck = std.time.ns_per_ms * 100;
@@ -50,6 +51,7 @@ const MAX_MESSAGE_SIZE = 256 * 1024 + 14;
 pub const Client = ClientT(*Server, CDP);
 
 const Server = struct {
+    app: *App,
     allocator: Allocator,
     loop: *jsruntime.Loop,
     current_client_id: usize = 0,
@@ -1028,6 +1030,7 @@ pub fn run(
     address: net.Address,
     timeout: u64,
     loop: *jsruntime.Loop,
+    app: *App,
 ) !void {
     // create socket
     const flags = posix.SOCK.STREAM | posix.SOCK.CLOEXEC | posix.SOCK.NONBLOCK;
@@ -1053,6 +1056,7 @@ pub fn run(
     const json_version_response = try buildJSONVersionResponse(allocator, address);
 
     var server = Server{
+        .app = app,
         .loop = loop,
         .timeout = timeout,
         .listener = listener,
