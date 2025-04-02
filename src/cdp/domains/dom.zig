@@ -17,9 +17,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const parser = @import("netsurf");
 const Node = @import("../Node.zig");
-const css = @import("../../dom/css.zig");
+const css = @import("../../browser/dom/css.zig");
+const parser = @import("../../browser/netsurf.zig");
 
 pub fn processMessage(cmd: anytype) !void {
     const action = std.meta.stringToEnum(enum {

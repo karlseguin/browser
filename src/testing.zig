@@ -17,7 +17,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const parser = @import("netsurf");
+const parser = @import("browser/netsurf.zig");
 
 pub const allocator = std.testing.allocator;
 pub const expectError = std.testing.expectError;
@@ -216,13 +216,162 @@ pub const Document = struct {
     }
 
     pub fn querySelectorAll(self: *Document, selector: []const u8) ![]const *parser.Node {
-        const css = @import("dom/css.zig");
+        const css = @import("browser/dom/css.zig");
         const node_list = try css.querySelectorAll(self.arena.allocator(), parser.documentToNode(self.doc), selector);
         return node_list.nodes.items;
     }
 
     pub fn querySelector(self: *Document, selector: []const u8) !?*parser.Node {
-        const css = @import("dom/css.zig");
+        const css = @import("browser/dom/css.zig");
         return css.querySelector(self.arena.allocator(), parser.documentToNode(self.doc), selector);
     }
 };
+
+pub const JsRunner = struct {
+    const Env = @import("browser/env.zig").Env;
+    const URL = @import("browser/url/url.zig").URL;
+    const Loop = @import("runtime/loop.zig").Loop;
+    const HttpClient = @import("http/client.zig").Client;
+    const storage = @import("browser/storage/storage.zig");
+    const Window = @import("browser/html/window.zig").Window;
+    const SessionState = @import("browser/env.zig").SessionState;
+    const Location = @import("browser/html/location.zig").Location;
+
+    env: *Env,
+    loop: Loop,
+    url: URL,
+    window: Window,
+    location: Location,
+    state: SessionState,
+    http_client: HttpClient,
+    executor: *Env.Executor,
+    buf: [1024 * 64]u8,
+    storage_shelf: storage.Shelf,
+    cookie_jar: storage.CookieJar,
+    fba: std.heap.FixedBufferAllocator,
+
+    fn init(opts: RunnerOpts) !*JsRunner {
+        parser.deinit();
+        try parser.init();
+
+        const runner = try allocator.create(JsRunner);
+        errdefer allocator.destroy(runner);
+
+        runner.buf = undefined;
+        runner.fba = std.heap.FixedBufferAllocator.init(&runner.buf);
+
+        const aa = runner.fba.allocator();
+
+        runner.env = try Env.init(aa, .{});
+        errdefer runner.env.deinit();
+
+        runner.cookie_jar = storage.CookieJar.init(aa);
+        runner.loop = try Loop.init(aa);
+        errdefer runner.loop.deinit();
+
+        var html = std.io.fixedBufferStream(opts.html);
+        const document = try parser.documentHTMLParse(html.reader(), "UTF-8");
+
+        runner.state = .{
+            .arena = aa,
+            .loop = &runner.loop,
+            .document = document,
+            .uri = undefined, // we'll set this a few lines down
+            .cookie_jar = &runner.cookie_jar,
+            .http_client = &runner.http_client,
+        };
+
+        runner.window = Window.create(null, null);
+        try runner.window.replaceDocument(document);
+
+        runner.url = try URL.constructor(&runner.state, "https://lightpanda.io/opensource-browser/", null);
+        runner.state.uri = runner.url.uri;
+        runner.location = .{ .url = &runner.url };
+        try runner.window.replaceLocation(&runner.location);
+
+        runner.storage_shelf = storage.Shelf.init(aa);
+        runner.window.setStorageShelf(&runner.storage_shelf);
+
+        // don't use fba here, since our http client pre-allocates large buffers
+        runner.http_client = try HttpClient.init(allocator, 1, .{
+            .tls_verify_host = false,
+        });
+
+        runner.executor = try runner.env.startExecutor(Window, &runner.state, runner);
+        errdefer runner.env.stopExecutor(runner.executor);
+
+        try runner.executor.startScope(&runner.window);
+        return runner;
+    }
+
+    pub fn deinit(self: *JsRunner) void {
+        self.executor.endScope();
+        self.http_client.deinit();
+        self.loop.deinit();
+        self.env.deinit();
+        self.storage_shelf.deinit();
+
+        allocator.destroy(self);
+        // everything else is allocated in our FixedBufferAlloctor
+    }
+
+    const RunOpts = struct {};
+    pub const Case = std.meta.Tuple(&.{ []const u8, []const u8 });
+    pub fn testCases(self: *JsRunner, cases: []const Case, _: RunOpts) !void {
+        for (cases, 0..) |case, i| {
+            var try_catch: Env.TryCatch = undefined;
+            try_catch.init(self.executor);
+            defer try_catch.deinit();
+
+            const value = self.executor.exec(case.@"0", null) catch |err| {
+                if (try try_catch.err(self.fba.allocator())) |msg| {
+                    std.debug.print("{s}\n\nCase: {d}\n{s}\n", .{ msg, i + 1, case.@"0" });
+                }
+                return err;
+            };
+            try self.loop.run();
+
+            const actual = try value.toString(self.fba.allocator());
+            if (std.mem.eql(u8, case.@"1", actual) == false) {
+                std.debug.print("Expected:\n{s}\n\nGot:\n{s}\n\nCase: {d}\n{s}\n", .{ case.@"1", actual, i + 1, case.@"0" });
+                return error.UnexpectedResult;
+            }
+        }
+    }
+
+    pub fn exec(self: *JsRunner, src: []const u8) !void {
+        var try_catch: Env.TryCatch = undefined;
+        try_catch.init(self.executor);
+        defer try_catch.deinit();
+        _ = self.executor.exec(src, null) catch |err| {
+            if (try try_catch.err(self.fba.allocator())) |msg| {
+                std.debug.print("Error runnign script: {s}\n", .{msg});
+            }
+            return err;
+        };
+    }
+
+    pub fn fetchModuleSource(ctx: *anyopaque, specifier: []const u8) ![]const u8 {
+        _ = ctx;
+        _ = specifier;
+        return error.DummyModuleLoader;
+    }
+};
+
+const RunnerOpts = struct {
+    html: []const u8 =
+        \\ <div id="content">
+        \\   <a id="link" href="foo" class="ok">OK</a>
+        \\   <p id="para-empty" class="ok empty">
+        \\     <span id="para-empty-child"></span>
+        \\   </p>
+        \\   <p id="para"> And</p>
+        \\   <!--comment-->
+        \\ </div>
+        \\
+    ,
+};
+
+pub fn jsRunner(opts: RunnerOpts) !*JsRunner {
+    return JsRunner.init(opts);
+}

@@ -23,8 +23,8 @@ const Allocator = std.mem.Allocator;
 const Testing = @This();
 
 const main = @import("cdp.zig");
-const parser = @import("netsurf");
 const App = @import("../app.zig").App;
+const parser = @import("../browser/netsurf.zig");
 
 pub const allocator = @import("../testing.zig").allocator;
 
@@ -38,7 +38,7 @@ const Browser = struct {
     session: ?*Session = null,
     arena: std.heap.ArenaAllocator,
 
-    pub fn init(app: *App) Browser {
+    pub fn init(app: *App) !Browser {
         return .{
             .arena = std.heap.ArenaAllocator.init(app.allocator),
         };
@@ -159,7 +159,7 @@ const TestContext = struct {
             self.client = Client.init(self.arena.allocator());
             // Don't use the arena here. We want to detect leaks in CDP.
             // The arena is only for test-specific stuff
-            self.cdp_ = TestCDP.init(self.app, &self.client.?);
+            self.cdp_ = try TestCDP.init(self.app, &self.client.?);
         }
         return &self.cdp_.?;
     }

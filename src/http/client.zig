@@ -26,9 +26,8 @@ const MemoryPool = std.heap.MemoryPool;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
 const tls = @import("tls");
-const jsruntime = @import("jsruntime");
-const IO = jsruntime.IO;
-const Loop = jsruntime.Loop;
+const IO = @import("../runtime/loop.zig").IO;
+const Loop = @import("../runtime/loop.zig").Loop;
 
 const log = std.log.scoped(.http_client);
 
@@ -52,7 +51,7 @@ pub const Client = struct {
     };
 
     pub fn init(allocator: Allocator, max_concurrent: usize, opts: Opts) !Client {
-        var root_ca = try tls.config.CertBundle.fromSystem(allocator);
+        var root_ca: tls.config.CertBundle = if (builtin.is_test) .{} else try tls.config.CertBundle.fromSystem(allocator);
         errdefer root_ca.deinit(allocator);
 
         const state_pool = try StatePool.init(allocator, max_concurrent);
@@ -68,7 +67,9 @@ pub const Client = struct {
 
     pub fn deinit(self: *Client) void {
         const allocator = self.allocator;
-        self.root_ca.deinit(allocator);
+        if (builtin.is_test == false) {
+            self.root_ca.deinit(allocator);
+        }
         self.state_pool.deinit(allocator);
     }
 
@@ -1889,7 +1890,7 @@ test "HttpClient: sync GET redirect" {
 }
 
 test "HttpClient: async connect error" {
-    var loop = try jsruntime.Loop.init(testing.allocator);
+    var loop = try Loop.init(testing.allocator);
     defer loop.deinit();
 
     const Handler = struct {
@@ -2167,7 +2168,7 @@ const TestResponse = struct {
 };
 
 const CaptureHandler = struct {
-    loop: jsruntime.Loop,
+    loop: Loop,
     reset: Thread.ResetEvent,
     response: TestResponse,
 
@@ -2175,7 +2176,7 @@ const CaptureHandler = struct {
         return .{
             .reset = .{},
             .response = TestResponse.init(),
-            .loop = try jsruntime.Loop.init(testing.allocator),
+            .loop = try Loop.init(testing.allocator),
         };
     }
 

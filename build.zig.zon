@@ -8,5 +8,15 @@
             .url = "https://github.com/ianic/tls.zig/archive/b29a8b45fc59fc2d202769c4f54509bb9e17d0a2.tar.gz",
             .hash = "1220e6fd39920dd6e28b2bc06688787a39430f8856f0597cd77c44ca868c6c54fb86",
         },
+        .tigerbeetle_io = .{
+            .url = "https://github.com/lightpanda-io/tigerbeetle-io/archive/61d9652f1a957b7f4db723ea6aa0ce9635e840ce.tar.gz",
+            .hash = "12207904c7c8723dca3177db273c0046cf6e4a5f1a472d8e5d42dd880222df0b6b2e",
+        },
+        .v8 = .{
+            .url = "https://github.com/karlseguin/zig-v8-fork/archive/c4bcd1e9a54a196ea8e44780cd805b7d1b5fef68.tar.gz",
+            .hash = "12202f887418f6d7515a51c6565d910e2694139f33a5482edd9647021e9c7db8da37",
+        },
+        // .v8 = .{ .path = "../zig-v8-fork" },
+        // .tigerbeetle_io = .{ .path = "../tigerbeetle-io" },
     },
 }
