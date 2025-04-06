@@ -108,7 +108,7 @@ pub const Location = struct {
 
 const testing = @import("../../testing.zig");
 test "Browser.HTML.Location" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

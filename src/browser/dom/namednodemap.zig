@@ -77,7 +77,7 @@ pub const NamedNodeMap = struct {
 
 const testing = @import("../../testing.zig");
 test "Browser.DOM.NamedNodeMap" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

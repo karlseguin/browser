@@ -268,7 +268,7 @@ pub const URLSearchParams = struct {
 
 const testing = @import("../../testing.zig");
 test "Browser.URL" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

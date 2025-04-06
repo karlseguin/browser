@@ -147,7 +147,7 @@ pub const EventHandler = struct {
 
 const testing = @import("../../testing.zig");
 test "Browser.Event" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

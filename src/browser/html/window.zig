@@ -35,17 +35,15 @@ var emptyLocation = Location{};
 // https://html.spec.whatwg.org/multipage/nav-history-apis.html#window
 pub const Window = struct {
     pub const prototype = *EventTarget;
-    pub const global_type = true;
 
     // Extend libdom event target for pure zig struct.
     base: parser.EventTargetTBase = parser.EventTargetTBase{},
 
-    document: ?*parser.DocumentHTML = null,
     target: []const u8,
     history: History = .{},
     location: *Location = &emptyLocation,
-
-    storageShelf: ?*storage.Shelf = null,
+    storage_shelf: ?*storage.Shelf = null,
+    document: ?*parser.DocumentHTML = null,
 
     // store a map between internal timeouts ids and pointers to uint.
     // the maximum number of possible timeouts is fixed.
@@ -58,6 +56,13 @@ pub const Window = struct {
         return .{
             .target = target orelse "",
             .navigator = navigator orelse .{},
+        };
+    }
+
+    pub fn constructor() Window {
+        return .{
+            .target = "",
+            .navigator = .{},
         };
     }
 
@@ -75,7 +80,7 @@ pub const Window = struct {
     }
 
     pub fn setStorageShelf(self: *Window, shelf: *storage.Shelf) void {
-        self.storageShelf = shelf;
+        self.storage_shelf = shelf;
     }
 
     pub fn get_window(self: *Window) *Window {
@@ -111,13 +116,13 @@ pub const Window = struct {
     }
 
     pub fn get_localStorage(self: *Window) !*storage.Bottle {
-        if (self.storageShelf == null) return parser.DOMError.NotSupported;
-        return &self.storageShelf.?.bucket.local;
+        if (self.storage_shelf == null) return parser.DOMError.NotSupported;
+        return &self.storage_shelf.?.bucket.local;
     }
 
     pub fn get_sessionStorage(self: *Window) !*storage.Bottle {
-        if (self.storageShelf == null) return parser.DOMError.NotSupported;
-        return &self.storageShelf.?.bucket.session;
+        if (self.storage_shelf == null) return parser.DOMError.NotSupported;
+        return &self.storage_shelf.?.bucket.session;
     }
 
     // TODO handle callback arguments.

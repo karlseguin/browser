@@ -468,7 +468,7 @@ pub const HTMLCollection = struct {
 
 const testing = @import("../../testing.zig");
 test "Browser.DOM.HTMLCollection" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

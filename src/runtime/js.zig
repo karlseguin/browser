@@ -227,6 +227,7 @@ pub fn Env(comptime S: type, comptime types: anytype) type {
                     // Hey, look! This is our first real usage of the TYPE_LOOKUP.
                     // Just like we said above, given a type, we can get its
                     // template index.
+
                     const proto_index = @field(TYPE_LOOKUP, proto_name);
                     templates[i].inherit(templates[proto_index]);
                 }
@@ -265,6 +266,14 @@ pub fn Env(comptime S: type, comptime types: anytype) type {
                 const Struct = @field(types, s.name);
                 const class_name = v8.String.initUtf8(isolate, comptime classNameForStruct(Struct));
                 global_template.set(class_name.toName(), templates[i], v8.PropertyAttribute.None);
+            }
+
+            // The global is its own Object and has to have its prototype chain setup.
+            if (@hasDecl(Global, "prototype")) {
+                const proto_type = Receiver(@typeInfo(Global.prototype).pointer.child);
+                const proto_name = @typeName(proto_type);
+                const proto_index = @field(TYPE_LOOKUP, proto_name);
+                globals.inherit(templates[proto_index]);
             }
 
             const context = v8.Context.init(isolate, global_template, null);
@@ -356,7 +365,6 @@ pub fn Env(comptime S: type, comptime types: anytype) type {
         // FunctionTemplate of the isolate (in startExecutor)
         fn attachClass(self: *Self, comptime Struct: type, template: v8.FunctionTemplate) void {
             const template_proto = template.getPrototypeTemplate();
-
             inline for (@typeInfo(Struct).@"struct".decls) |declaration| {
                 const name = declaration.name;
                 if (comptime name[0] == '_') {

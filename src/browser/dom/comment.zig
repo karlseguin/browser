@@ -41,7 +41,7 @@ pub const Comment = struct {
 
 const testing = @import("../../testing.zig");
 test "Browser.DOM.Comment" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

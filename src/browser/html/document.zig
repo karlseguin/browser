@@ -213,7 +213,7 @@ pub const HTMLDocument = struct {
 const testing = @import("../../testing.zig");
 
 test "Browser.HTML.Document" {
-    var runner = try testing.jsRunner(.{});
+    var runner = try testing.jsRunner(testing.allocator, .{});
     defer runner.deinit();
 
     try runner.testCases(&.{

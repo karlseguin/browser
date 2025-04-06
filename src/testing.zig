@@ -17,7 +17,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const parser = @import("browser/netsurf.zig");
+const Allocator = std.mem.Allocator;
 
 pub const allocator = std.testing.allocator;
 pub const expectError = std.testing.expectError;
@@ -25,6 +25,7 @@ pub const expectString = std.testing.expectEqualStrings;
 pub const expectEqualSlices = std.testing.expectEqualSlices;
 
 const App = @import("app.zig").App;
+const parser = @import("browser/netsurf.zig");
 
 // Merged std.testing.expectEqual and std.testing.expectString
 // can be useful when testing fields of an anytype an you don't know
@@ -241,39 +242,38 @@ pub const JsRunner = struct {
     loop: Loop,
     url: URL,
     window: Window,
-    location: Location,
+    arena: Allocator,
     state: SessionState,
+    location: Location,
     http_client: HttpClient,
     executor: *Env.Executor,
-    buf: [1024 * 64]u8,
     storage_shelf: storage.Shelf,
     cookie_jar: storage.CookieJar,
-    fba: std.heap.FixedBufferAllocator,
 
-    fn init(opts: RunnerOpts) !*JsRunner {
+    fn init(parent_allocator: Allocator, opts: RunnerOpts) !*JsRunner {
         parser.deinit();
         try parser.init();
 
-        const runner = try allocator.create(JsRunner);
-        errdefer allocator.destroy(runner);
+        const aa = try parent_allocator.create(std.heap.ArenaAllocator);
+        aa.* = std.heap.ArenaAllocator.init(parent_allocator);
+        errdefer aa.deinit();
 
-        runner.buf = undefined;
-        runner.fba = std.heap.FixedBufferAllocator.init(&runner.buf);
+        const arena = aa.allocator();
+        const runner = try arena.create(JsRunner);
+        runner.arena = arena;
 
-        const aa = runner.fba.allocator();
-
-        runner.env = try Env.init(aa, .{});
+        runner.env = try Env.init(arena, .{});
         errdefer runner.env.deinit();
 
-        runner.cookie_jar = storage.CookieJar.init(aa);
-        runner.loop = try Loop.init(aa);
+        runner.cookie_jar = storage.CookieJar.init(arena);
+        runner.loop = try Loop.init(arena);
         errdefer runner.loop.deinit();
 
         var html = std.io.fixedBufferStream(opts.html);
         const document = try parser.documentHTMLParse(html.reader(), "UTF-8");
 
         runner.state = .{
-            .arena = aa,
+            .arena = arena,
             .loop = &runner.loop,
             .document = document,
             .uri = undefined, // we'll set this a few lines down
@@ -289,11 +289,11 @@ pub const JsRunner = struct {
         runner.location = .{ .url = &runner.url };
         try runner.window.replaceLocation(&runner.location);
 
-        runner.storage_shelf = storage.Shelf.init(aa);
+        runner.storage_shelf = storage.Shelf.init(arena);
         runner.window.setStorageShelf(&runner.storage_shelf);
 
         // don't use fba here, since our http client pre-allocates large buffers
-        runner.http_client = try HttpClient.init(allocator, 1, .{
+        runner.http_client = try HttpClient.init(arena, 1, .{
             .tls_verify_host = false,
         });
 
@@ -305,14 +305,15 @@ pub const JsRunner = struct {
     }
 
     pub fn deinit(self: *JsRunner) void {
-        self.executor.endScope();
-        self.http_client.deinit();
         self.loop.deinit();
+        self.executor.endScope();
         self.env.deinit();
+        self.http_client.deinit();
         self.storage_shelf.deinit();
 
-        allocator.destroy(self);
-        // everything else is allocated in our FixedBufferAlloctor
+        const arena: *std.heap.ArenaAllocator = @ptrCast(@alignCast(self.arena.ptr));
+        arena.deinit();
+        arena.child_allocator.destroy(arena);
     }
 
     const RunOpts = struct {};
@@ -324,14 +325,14 @@ pub const JsRunner = struct {
             defer try_catch.deinit();
 
             const value = self.executor.exec(case.@"0", null) catch |err| {
-                if (try try_catch.err(self.fba.allocator())) |msg| {
+                if (try try_catch.err(self.arena)) |msg| {
                     std.debug.print("{s}\n\nCase: {d}\n{s}\n", .{ msg, i + 1, case.@"0" });
                 }
                 return err;
             };
             try self.loop.run();
 
-            const actual = try value.toString(self.fba.allocator());
+            const actual = try value.toString(self.arena);
             if (std.mem.eql(u8, case.@"1", actual) == false) {
                 std.debug.print("Expected:\n{s}\n\nGot:\n{s}\n\nCase: {d}\n{s}\n", .{ case.@"1", actual, i + 1, case.@"0" });
                 return error.UnexpectedResult;
@@ -340,11 +341,16 @@ pub const JsRunner = struct {
     }
 
     pub fn exec(self: *JsRunner, src: []const u8) !void {
+        _ = try self.eval(src);
+    }
+
+    pub fn eval(self: *JsRunner, src: []const u8) !Env.Value {
         var try_catch: Env.TryCatch = undefined;
         try_catch.init(self.executor);
         defer try_catch.deinit();
-        _ = self.executor.exec(src, null) catch |err| {
-            if (try try_catch.err(self.fba.allocator())) |msg| {
+
+        return self.executor.exec(src, null) catch |err| {
+            if (try try_catch.err(self.arena)) |msg| {
                 std.debug.print("Error runnign script: {s}\n", .{msg});
             }
             return err;
@@ -372,6 +378,6 @@ const RunnerOpts = struct {
     ,
 };
 
-pub fn jsRunner(opts: RunnerOpts) !*JsRunner {
-    return JsRunner.init(opts);
+pub fn jsRunner(alloc: Allocator, opts: RunnerOpts) !*JsRunner {
+    return JsRunner.init(alloc, opts);
 }
