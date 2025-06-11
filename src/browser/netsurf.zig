@@ -2190,14 +2190,8 @@ fn parserErr(err: HubbubErr) ParserError!void {
     };
 }
 
-// documentHTMLParseFromStr parses the given HTML string.
-// The caller is responsible for closing the document.
-pub fn documentHTMLParseFromStr(str: []const u8) !*DocumentHTML {
-    var fbs = std.io.fixedBufferStream(str);
-    return try documentHTMLParse(fbs.reader(), "UTF-8");
-}
 
-pub fn documentHTMLParse(reader: anytype, enc: ?[:0]const u8) !*DocumentHTML {
+pub fn documentHTMLParse(data: []const u8, enc: ?[:0]const u8) !*DocumentHTML {
     var parser: ?*c.dom_hubbub_parser = undefined;
     var doc: ?*c.dom_document = undefined;
     var err: c.hubbub_error = undefined;
@@ -2207,7 +2201,7 @@ pub fn documentHTMLParse(reader: anytype, enc: ?[:0]const u8) !*DocumentHTML {
     try parserErr(err);
     defer c.dom_hubbub_parser_destroy(parser);
 
-    try parseData(parser.?, reader);
+    try parseData(parser.?, data);
 
     return @as(*DocumentHTML, @ptrCast(doc.?));
 }
@@ -2244,30 +2238,18 @@ fn parseParams(enc: ?[:0]const u8) c.dom_hubbub_parser_params {
     };
 }
 
-fn parseData(parser: *c.dom_hubbub_parser, reader: anytype) !void {
+fn parseData(parser: *c.dom_hubbub_parser, data: []const u8) !void {
     var err: c.hubbub_error = undefined;
-    const TI = @typeInfo(@TypeOf(reader));
-    if (TI == .pointer and @hasDecl(TI.pointer.child, "next")) {
-        while (try reader.next()) |data| {
-            err = c.dom_hubbub_parser_parse_chunk(parser, data.ptr, data.len);
-            try parserErr(err);
-        }
-    } else {
-        var buffer: [1024]u8 = undefined;
-        var ln = buffer.len;
-        while (ln > 0) {
-            ln = try reader.read(&buffer);
-            err = c.dom_hubbub_parser_parse_chunk(parser, &buffer, ln);
-            // TODO handle encoding change error return.
-            // When the HTML contains a META tag with a different encoding than the
-            // original one, a c.DOM_HUBBUB_HUBBUB_ERR_ENCODINGCHANGE error is
-            // returned.
-            // In this case, we must restart the parsing with the new detected
-            // encoding. The detected encoding is stored in the document and we can
-            // get it with documentGetInputEncoding().
-            try parserErr(err);
-        }
-    }
+    err = c.dom_hubbub_parser_parse_chunk(parser, data.ptr, data.len);
+    // TODO handle encoding change error return.
+    // When the HTML contains a META tag with a different encoding than the
+    // original one, a c.DOM_HUBBUB_HUBBUB_ERR_ENCODINGCHANGE error is
+    // returned.
+    // In this case, we must restart the parsing with the new detected
+    // encoding. The detected encoding is stored in the document and we can
+    // get it with documentGetInputEncoding().
+    try parserErr(err);
+
     err = c.dom_hubbub_parser_completed(parser);
     try parserErr(err);
 }

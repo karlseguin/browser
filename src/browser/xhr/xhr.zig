@@ -488,7 +488,8 @@ pub const XMLHttpRequest = struct {
             const header = progress.header;
             log.debug(.http, "request header", .{
                 .source = "xhr",
-                .url = self.url,
+                .request_url = self.url,
+                .response_url = self.request.request_uri,
                 .status = header.status,
             });
             for (header.headers.items) |hdr| {
@@ -536,15 +537,15 @@ pub const XMLHttpRequest = struct {
             return;
         }
 
+        // Now that the request is done, the http/client will free the request
+        // object. It isn't safe to keep it around.
+        self.request = null;
+
         log.info(.http, "request complete", .{
             .source = "xhr",
             .url = self.url,
             .status = self.response_status,
         });
-
-        // Not that the request is done, the http/client will free the request
-        // object. It isn't safe to keep it around.
-        self.request = null;
 
         self.state = .done;
         self.send_flag = false;
@@ -733,8 +734,7 @@ pub const XMLHttpRequest = struct {
             }
         }
 
-        var fbs = std.io.fixedBufferStream(self.response_bytes.items);
-        const doc = parser.documentHTMLParse(fbs.reader(), ccharset) catch {
+        const doc = parser.documentHTMLParse(self.response_bytes.items, ccharset) catch {
             self.response_obj = .{ .Failure = {} };
             return;
         };

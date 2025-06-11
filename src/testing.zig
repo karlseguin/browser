@@ -213,10 +213,7 @@ pub const Document = struct {
     pub fn init(html: []const u8) !Document {
         parser.deinit();
         try parser.init();
-
-        var fbs = std.io.fixedBufferStream(html);
-        const html_doc = try parser.documentHTMLParse(fbs.reader(), "utf-8");
-
+        const html_doc = try parser.documentHTMLParse(html, "utf-8");
         return .{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .doc = html_doc,

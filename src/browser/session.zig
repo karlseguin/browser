@@ -133,6 +133,7 @@ pub const Session = struct {
         // release their resources.
         try self.browser.app.loop.run();
 
+        self.page.deinit();
         self.page = null;
 
         // clear netsurf memory arena.
@@ -166,6 +167,6 @@ pub const Session = struct {
 
         try self.removePage();
         var page = try self.createPage();
-        return page.navigate(url, opts);
+        return page.navigate(url.raw, opts);
     }
 };

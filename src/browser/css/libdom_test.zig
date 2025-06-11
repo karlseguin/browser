@@ -302,7 +302,7 @@ test "matchAll" {
     for (testcases) |tc| {
         matcher.reset();
 
-        const doc = try parser.documentHTMLParseFromStr(tc.html);
+        const doc = try parser.documentHTMLParse(tc.html, "utf-8");
         defer parser.documentHTMLClose(doc) catch {};
 
         const s = css.parse(alloc, tc.q, .{}) catch |e| {

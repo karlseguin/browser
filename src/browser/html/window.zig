@@ -60,8 +60,7 @@ pub const Window = struct {
     performance: Performance,
 
     pub fn create(target: ?[]const u8, navigator: ?Navigator) !Window {
-        var fbs = std.io.fixedBufferStream("");
-        const html_doc = try parser.documentHTMLParse(fbs.reader(), "utf-8");
+        const html_doc = try parser.documentHTMLParse("", "utf-8");
         const doc = parser.documentHTMLToDocument(html_doc);
         try parser.documentSetDocumentURI(doc, "about:blank");
 

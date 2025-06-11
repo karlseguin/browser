@@ -31,7 +31,7 @@ pub const DOMParser = struct {
             return error.TypeError;
         }
 
-        return try parser.documentHTMLParseFromStr(string);
+        return try parser.documentHTMLParsestring, "utf-8");
     }
 };
 

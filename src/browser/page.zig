@@ -31,6 +31,7 @@ const Renderer = @import("renderer.zig").Renderer;
 const Window = @import("html/window.zig").Window;
 const Walker = @import("dom/walker.zig").WalkerDepthFirst;
 const Loop = @import("../runtime/loop.zig").Loop;
+const Downloader = @import("Downloader.zig");
 const HTMLDocument = @import("html/document.zig").HTMLDocument;
 const RequestFactory = @import("../http/client.zig").RequestFactory;
 
@@ -51,8 +52,6 @@ const polyfill = @import("polyfill/polyfill.zig");
 pub const Page = struct {
     // Our event loop
     loop: *Loop,
-
-    cookie_jar: *storage.CookieJar,
 
     // Pre-configured http/cilent.zig used to make HTTP requests.
     request_factory: RequestFactory,
@@ -98,6 +97,8 @@ pub const Page = struct {
 
     state_pool: *std.heap.MemoryPool(State),
 
+    downloader: Downloader,
+
     pub fn init(self: *Page, arena: Allocator, session: *Session) !void {
         const browser = session.browser;
         self.* = .{
@@ -107,10 +108,10 @@ pub const Page = struct {
             .url = URL.empty,
             .session = session,
             .call_arena = undefined,
+            .downloader = undefined,
             .loop = browser.app.loop,
             .renderer = Renderer.init(arena),
             .state_pool = &browser.state_pool,
-            .cookie_jar = &session.cookie_jar,
             .microtask_node = .{ .func = microtaskCallback },
             .window_clicked_event_node = .{ .func = windowClicked },
             .request_factory = browser.http_client.requestFactory(.{
@@ -121,10 +122,17 @@ pub const Page = struct {
         };
         self.scope = try session.executor.startScope(&self.window, self, self, true);
 
+        self.download = Downloade.init(self);
+        errdefer self.downloader.deinit();
+
         // load polyfills
         try polyfill.load(self.arena, self.scope);
 
         _ = try session.browser.app.loop.timeout(1 * std.time.ns_per_ms, &self.microtask_node);
+    }
+
+    pub fn deinit(self: *Page) void {
+        self.downloader.deinit();
     }
 
     fn microtaskCallback(node: *Loop.CallbackNode, repeat_delay: *?u63) void {
@@ -184,100 +192,95 @@ pub const Page = struct {
         return arr.items;
     }
 
-    // spec reference: https://html.spec.whatwg.org/#document-lifecycle
-    pub fn navigate(self: *Page, request_url: URL, opts: NavigateOpts) !void {
-        const arena = self.arena;
-        const session = self.session;
-        const notification = session.browser.notification;
-
-        log.debug(.http, "navigate", .{ .url = request_url, .reason = opts.reason });
+    pub fn navigate(self: *Page, request_url: []const u8, opts: NavigateOpts) !void {
+        log.debug(.http, "navigate", .{
+            .url = request_url,
+            .reason = opts.reason
+        });
 
         // if the url is about:blank, nothing to do.
-        if (std.mem.eql(u8, "about:blank", request_url.raw)) {
-            var fbs = std.io.fixedBufferStream("");
-            try self.loadHTMLDoc(fbs.reader(), "utf-8");
+        if (std.mem.eql(u8, "about:blank", request_url)) {
+            try self.loadHTMLDoc("", "utf-8");
             // We do not processHTMLDoc here as we know we don't have any scripts
             // This assumption may be false when CDP Page.addScriptToEvaluateOnNewDocument is implemented
             try HTMLDocument.documentIsComplete(self.window.document, self);
             return;
         }
 
-        // we don't clone url, because we're going to replace self.url
-        // later in this function, with the final request url (since we might
-        // redirect)
-        self.url = request_url;
+        std.debug.assert(self.downloader.empty());
+        try self.downloader.request(.page, opts.method, request_url, .{
+            .body = opts.body,
+            .cookie = .{.navigation = true},
+            .notification = self.session.browser.notification,
+        });
+    }
 
-        {
-            // block exists to limit the lifetime of the request, which holds
-            // onto a connection
-            var request = try self.newHTTPRequest(opts.method, &self.url, .{ .navigation = true });
-            defer request.deinit();
-
-            request.body = opts.body;
-            request.notification = notification;
-
-            notification.dispatch(.page_navigate, &.{
-                .opts = opts,
-                .url = &self.url,
-                .timestamp = timestamp(),
-            });
-
-            var response = try request.sendSync(.{});
-
-            // would be different than self.url in the case of a redirect
-            self.url = try URL.fromURI(arena, request.request_uri);
-
-            const header = response.header;
-            try session.cookie_jar.populateFromResponse(&self.url.uri, &header);
-
-            // TODO handle fragment in url.
-            try self.window.replaceLocation(.{ .url = try self.url.toWebApi(arena) });
-
-            const content_type = header.get("content-type");
-
-            const mime: Mime = blk: {
-                if (content_type) |ct| {
-                    break :blk try Mime.parse(arena, ct);
-                }
-                break :blk Mime.sniff(try response.peek());
-            } orelse .unknown;
-
-            log.info(.http, "navigation", .{
-                .status = header.status,
-                .content_type = content_type,
-                .charset = mime.charset,
-                .url = request_url,
-            });
-
-            if (!mime.isHTML()) {
-                var arr: std.ArrayListUnmanaged(u8) = .{};
-                while (try response.next()) |data| {
-                    try arr.appendSlice(arena, try arena.dupe(u8, data));
-                }
-                // save the body into the page.
-                self.raw_data = arr.items;
-                return;
-            }
-
-            try self.loadHTMLDoc(&response, mime.charset orelse "utf-8");
+    pub fn downloadComplete(self: *Page, response: Downloader.Response) !void {
+        switch (response.type) {
+            .page => try self.pageDownloaded(response),
+            .script => try self.scriptDownloaded(response),
         }
 
+        if (!self.downloader.empty()) {
+            return;
+        }
+
+        // We've downloaded the page and all the scripts
+
+        self.session.browser.notification.dispatch(.page_navigated, &.{
+            .url = &self.url,
+            .timestamp = timestamp(),
+        });
+
+        log.debug(.http, "navigation complete", .{
+            .url = self.url,
+        });
+    }
+
+    fn pageDownloaded(self: *Page, response: Downloader.Response) !void {
+        self.url = try URL.fromURI(self.arena, response.uri);
+
+        // TODO handle fragment in url.
+        try self.window.replaceLocation(.{ .url = try self.url.toWebApi(self.arena) });
+
+        const body = response.body.items;
+        const content_type = response.content_type;
+
+        const mime: Mime = blk: {
+            if (content_type) |ct| {
+                break :blk try Mime.parse(arena, ct);
+            }
+            break :blk Mime.sniff(body);
+        } orelse .unknown;
+
+        log.info(.http, "navigation", .{
+            .status = response.status,
+            .content_type = content_type,
+            .charset = mime.charset,
+            .url = self.url,
+        });
+
+       if (!mime.isHTML()) {
+            // save the body into the page.
+            self.raw_data = try self.arena.dupe(u8, body);
+            return;
+        }
+
+        try self.loadHTMLDoc(body, mime.charset orelse "utf-8");
         try self.processHTMLDoc();
 
         notification.dispatch(.page_navigated, &.{
             .url = &self.url,
             .timestamp = timestamp(),
         });
-        log.debug(.http, "navigation complete", .{
-            .url = request_url,
-        });
+
+        log.debug(.http, "navigation complete", .{});
     }
 
     // https://html.spec.whatwg.org/#read-html
-    pub fn loadHTMLDoc(self: *Page, reader: anytype, charset: []const u8) !void {
+    pub fn loadHTMLDoc(self: *Page, body: []const u8, charset: []const u8) !void {
         const ccharset = try self.arena.dupeZ(u8, charset);
-
-        const html_doc = try parser.documentHTMLParse(reader, ccharset);
+        const html_doc = try parser.documentHTMLParse(body, ccharset);
         const doc = parser.documentHTMLToDocument(html_doc);
 
         // inject the URL to the document including the fragment.
@@ -404,6 +407,13 @@ pub const Page = struct {
         );
     }
 
+    fn scriptDownloaded(self: *Page, response: Downloader.Response) !void {
+        // KARL: TODO
+        // EvalScript with src
+        // Downloader Task.Type needs to be an union, I think. page: void
+        // buf script needs the element, the sourc, etc..?
+    }
+
     fn evalScript(self: *Page, script: *const Script) void {
         self.tryEvalScript(script) catch |err| {
             log.err(.js, "eval script error", .{ .err = err, .src = script.src });
@@ -414,6 +424,15 @@ pub const Page = struct {
     // if no src is present, we evaluate the text source.
     // https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model
     fn tryEvalScript(self: *Page, script: *const Script) !void {
+        if (script.src) |src| {
+            return self.downloader.request(.script, .GET, src, .{
+                .cooking = .{
+                    .origin_uri = &origin_url.uri,
+                    .navigation = false,
+                }
+            })
+        }
+
         const html_doc = self.window.document;
         try parser.documentHTMLSetCurrentScript(html_doc, @ptrCast(script.element));
 
@@ -421,12 +440,12 @@ pub const Page = struct {
             log.err(.browser, "clear document script", .{ .err = err });
         };
 
-        const src = script.src orelse {
-            // source is inline
-            // TODO handle charset attribute
-            if (try parser.nodeTextContent(parser.elementToNode(script.element))) |text| {
-                try script.eval(self, text);
-            }
+
+        // source is inline
+        // TODO handle charset attribute
+        if (try parser.nodeTextContent(parser.elementToNode(script.element))) |text| {
+            try script.eval(self, text);
+        }
             return;
         };
 
